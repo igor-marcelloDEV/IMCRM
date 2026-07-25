@@ -8,13 +8,7 @@ import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { LoginHero } from "@/components/auth/login-hero";
 import { MessageSquare, UsersRound } from "lucide-react";
 
 // `useSearchParams` opts the component out of static prerendering
@@ -75,27 +69,30 @@ function LoginPageInner() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4">
-      <Card className="w-full max-w-md border-border bg-card">
-        <CardHeader className="items-center text-center">
-          <div className="mb-2 flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10">
-            {inviteToken ? (
-              <UsersRound className="h-6 w-6 text-primary" />
-            ) : (
-              <MessageSquare className="h-6 w-6 text-primary" />
-            )}
+    <div className="grid min-h-screen bg-background lg:grid-cols-[minmax(0,480px)_1fr]">
+      <div className="flex items-center justify-center px-6 py-12 sm:px-10">
+        <div className="w-full max-w-sm">
+          <div className="mb-8 flex items-center gap-2">
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10">
+              {inviteToken ? (
+                <UsersRound className="h-5 w-5 text-primary" />
+              ) : (
+                <MessageSquare className="h-5 w-5 text-primary" />
+              )}
+            </div>
+            <span className="text-sm font-semibold text-foreground">
+              IM<span className="text-primary"> CRM</span>
+            </span>
           </div>
-          <CardTitle className="text-xl text-foreground">
+
+          <h1 className="text-xl font-semibold text-foreground">
             {inviteToken ? t('titleAccept') : t('titleWelcome')}
-          </CardTitle>
-          <CardDescription className="text-muted-foreground">
-            {inviteToken
-              ? t('descAccept')
-              : t('descWelcome')}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleLogin} className="flex flex-col gap-4">
+          </h1>
+          <p className="mt-1.5 text-sm text-muted-foreground">
+            {inviteToken ? t('descAccept') : t('descWelcome')}
+          </p>
+
+          <form onSubmit={handleLogin} className="mt-8 flex flex-col gap-4">
             {error && (
               <div className="rounded-lg border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-400">
                 {error}
@@ -162,8 +159,10 @@ function LoginPageInner() {
               {t('createAccount')}
             </Link>
           </p>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
+
+      <LoginHero />
     </div>
   );
 }

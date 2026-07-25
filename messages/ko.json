@@ -12,7 +12,12 @@
     "signingIn": "로그인 중...",
     "signIn": "로그인",
     "noAccount": "계정이 없으신가요?",
-    "createAccount": "계정 만들기"
+    "createAccount": "계정 만들기",
+    "heroTitle": "한 곳에서 관리하는 왓츠앱 영업 허브.",
+    "heroSubtitle": "공유 받은편지함, 시각적 영업 파이프라인, 자동화까지 실시간으로.",
+    "heroBullet1": "팀 전체가 함께 쓰는 공유 받은편지함",
+    "heroBullet2": "드래그 앤 드롭 영업 파이프라인",
+    "heroBullet3": "리드를 자동으로 포착하는 자동화"
   },
   "Sidebar": {
     "title": "WhatsApp용 CRM 템플릿",

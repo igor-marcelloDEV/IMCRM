@@ -12,7 +12,12 @@
     "signingIn": "Signing in...",
     "signIn": "Sign in",
     "noAccount": "Don't have an account?",
-    "createAccount": "Create account"
+    "createAccount": "Create account",
+    "heroTitle": "Your WhatsApp sales hub, in one place.",
+    "heroSubtitle": "Shared inbox, visual sales pipeline, and automations — all in real time.",
+    "heroBullet1": "Shared inbox for your whole team",
+    "heroBullet2": "Drag-and-drop visual sales pipeline",
+    "heroBullet3": "Automations that capture leads for you"
   },
   "Sidebar": {
     "title": "CRM Template for WhatsApp",
