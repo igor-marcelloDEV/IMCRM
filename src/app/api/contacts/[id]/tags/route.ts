@@ -29,7 +29,7 @@ export async function POST(
     const { id: contactId } = await params;
     const tagId = await readTagId(request);
     if (!tagId) {
-      return NextResponse.json({ error: 'tag_id required' }, { status: 400 });
+      return NextResponse.json({ error: "O campo 'tag_id' é obrigatório" }, { status: 400 });
     }
 
     const result = await addContactTagAndDispatch({
@@ -57,7 +57,7 @@ export async function DELETE(
     const { id: contactId } = await params;
     const tagId = await readTagId(request);
     if (!tagId) {
-      return NextResponse.json({ error: 'tag_id required' }, { status: 400 });
+      return NextResponse.json({ error: "O campo 'tag_id' é obrigatório" }, { status: 400 });
     }
 
     await removeContactTag(ctx.supabase, {

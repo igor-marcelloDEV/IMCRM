@@ -43,6 +43,14 @@ interface AccountSummary {
   /** Default deal currency (ISO-4217). NOT NULL DEFAULT 'USD' in the
    *  DB (migration 021); narrowed to DEFAULT_CURRENCY when absent. */
   default_currency: string;
+  /**
+   * Which WhatsApp integration is currently live for this account —
+   * 'meta_cloud_api' (official) or 'baileys' (unofficial, WhatsApp
+   * Web). NOT NULL DEFAULT 'meta_cloud_api' in the DB (migration 037).
+   * The Broadcast composer reads this to show the ban-risk warning
+   * when Baileys is active.
+   */
+  active_whatsapp_provider: "meta_cloud_api" | "baileys";
 }
 
 interface AuthContextValue {
@@ -171,7 +179,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             .from("accounts")
             // default_currency added in migration 021; narrowed to the
             // USD fallback below for older schemas where it reads null.
-            .select("id, name, default_currency")
+            .select("id, name, default_currency, active_whatsapp_provider")
             .eq("id", data.account_id)
             .maybeSingle();
           if (accountErr) {
@@ -186,6 +194,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               id: account.id,
               name: account.name,
               default_currency: account.default_currency ?? DEFAULT_CURRENCY,
+              active_whatsapp_provider:
+                account.active_whatsapp_provider ?? "meta_cloud_api",
             };
           }
         }

@@ -1,17 +1,17 @@
 {
-  "name": "wacrm",
+  "name": "imcrm",
   "version": "0.8.0",
   "private": true,
-  "description": "Self-hostable CRM template for WhatsApp built on Next.js and Supabase — shared inbox, contacts, sales pipelines, broadcasts, and no-code automations.",
+  "description": "Self-hostable CRM for WhatsApp — shared inbox, contacts, sales pipelines, broadcasts, and no-code automations.",
   "license": "MIT",
   "author": "Arnas Donauskas",
-  "homepage": "https://github.com/ArnasDon/wacrm",
+  "homepage": "https://github.com/igor-marcelloDEV/IMCRM",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ArnasDon/wacrm.git"
+    "url": "git+https://github.com/igor-marcelloDEV/IMCRM.git"
   },
   "bugs": {
-    "url": "https://github.com/ArnasDon/wacrm/issues"
+    "url": "https://github.com/igor-marcelloDEV/IMCRM/issues"
   },
   "keywords": [
     "crm",

@@ -7,12 +7,12 @@ import {
 describe("validateStepsForActivation", () => {
   it("rejects empty or missing step lists", () => {
     expect(validateStepsForActivation([])).toEqual([
-      { path: "steps", message: "active automations need at least one step" },
+      { path: "steps", message: "active automations need at least one step", messageKey: "needsOneStep" },
     ]);
     expect(
       validateStepsForActivation(undefined as unknown as never[]),
     ).toEqual([
-      { path: "steps", message: "active automations need at least one step" },
+      { path: "steps", message: "active automations need at least one step", messageKey: "needsOneStep" },
     ]);
   });
 
@@ -192,7 +192,12 @@ describe("validateStepsForActivation", () => {
       { step_type: "do_a_barrel_roll", step_config: {} },
     ]);
     expect(issues).toEqual([
-      { path: "steps[0]", message: "unknown step type: do_a_barrel_roll" },
+      {
+        path: "steps[0]",
+        message: "unknown step type: do_a_barrel_roll",
+        messageKey: "unknownStepType",
+        params: { type: "do_a_barrel_roll" },
+      },
     ]);
   });
 
@@ -251,7 +256,11 @@ describe("validateTriggerForActivation", () => {
 
   it("requires schedule on time_based triggers", () => {
     expect(validateTriggerForActivation("time_based", {})).toEqual([
-      { path: "trigger.schedule", message: "schedule is required" },
+      {
+        path: "trigger.schedule",
+        message: "schedule is required",
+        messageKey: "trigger.scheduleRequired",
+      },
     ]);
     expect(
       validateTriggerForActivation("time_based", { schedule: "0 9 * * *" }),
@@ -260,7 +269,11 @@ describe("validateTriggerForActivation", () => {
 
   it("requires tag_id on tag_added triggers", () => {
     expect(validateTriggerForActivation("tag_added", {})).toEqual([
-      { path: "trigger.tag_id", message: "tag is required" },
+      {
+        path: "trigger.tag_id",
+        message: "tag is required",
+        messageKey: "trigger.tagRequired",
+      },
     ]);
     expect(
       validateTriggerForActivation("tag_added", { tag_id: "tag-uuid" }),
@@ -269,7 +282,11 @@ describe("validateTriggerForActivation", () => {
 
   it("requires reply_ids on interactive_reply triggers", () => {
     expect(validateTriggerForActivation("interactive_reply", {})).toEqual([
-      { path: "trigger.reply_ids", message: "at least one reply id is required" },
+      {
+        path: "trigger.reply_ids",
+        message: "at least one reply id is required",
+        messageKey: "trigger.replyIdRequired",
+      },
     ]);
     expect(
       validateTriggerForActivation("interactive_reply", { reply_ids: ["yes", "no"] }),

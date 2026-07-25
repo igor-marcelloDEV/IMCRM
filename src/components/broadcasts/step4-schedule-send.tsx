@@ -3,8 +3,10 @@
 import { useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { MessageTemplate } from '@/types';
+import { useAuth } from '@/hooks/use-auth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import {
   Dialog,
   DialogContent,
@@ -14,7 +16,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
-import { ArrowLeft, Send, Loader2, Users, Save } from 'lucide-react';
+import { ArrowLeft, Send, Loader2, Users, Save, AlertTriangle } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
 interface AudienceConfig {
@@ -47,6 +49,8 @@ export function Step4ScheduleSend({
   progress,
 }: Step4Props) {
   const t = useTranslations('Broadcasts.wizard');
+  const { account } = useAuth();
+  const isBaileysActive = account?.active_whatsapp_provider === 'baileys';
   const [showConfirm, setShowConfirm] = useState(false);
   const [estimatedReach, setEstimatedReach] = useState<number>(0);
   const [loadingReach, setLoadingReach] = useState(true);
@@ -125,7 +129,7 @@ export function Step4ScheduleSend({
             <p className="text-foreground">{audienceLabel}</p>
           </div>
           <div>
-            <p className="text-xs text-muted-foreground">Estimated Reach</p>
+            <p className="text-xs text-muted-foreground">{t('scheduleSend.estimatedReach')}</p>
             <div className="flex items-center gap-1.5">
               {loadingReach ? (
                 <Loader2 className="h-3 w-3 animate-spin text-primary" />
@@ -138,11 +142,33 @@ export function Step4ScheduleSend({
             </div>
           </div>
           <div>
-            <p className="text-xs text-muted-foreground">Language</p>
+            <p className="text-xs text-muted-foreground">{t('scheduleSend.language')}</p>
             <p className="text-foreground">{template.language ?? 'en_US'}</p>
           </div>
         </div>
       </div>
+
+      {/* Ban-risk warning — shown when this account's active WhatsApp
+          connection is the unofficial WhatsApp Web integration
+          (Baileys) rather than the official Meta Cloud API. Sending
+          still works; this is purely an informed-consent banner, per
+          the plan doc's decision to allow (not block) Baileys
+          broadcasts. */}
+      {isBaileysActive && (
+        <Alert className="bg-amber-950/40 border-amber-600/40">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="size-5 text-amber-400 mt-0.5 shrink-0" />
+            <div className="flex-1">
+              <AlertTitle className="text-amber-200 mb-1">
+                {t('scheduleSend.baileysRiskTitle')}
+              </AlertTitle>
+              <AlertDescription className="text-amber-100/80 text-sm">
+                {t('scheduleSend.baileysRiskDesc')}
+              </AlertDescription>
+            </div>
+          </div>
+        </Alert>
+      )}
 
       {/* Processing overlay */}
       {isProcessing && (
@@ -201,13 +227,13 @@ export function Step4ScheduleSend({
           </DialogTrigger>
           <DialogContent className="border-border bg-popover sm:max-w-md">
             <DialogHeader>
-              <DialogTitle className="text-popover-foreground">Confirm Broadcast</DialogTitle>
+              <DialogTitle className="text-popover-foreground">{t('scheduleSend.confirmBroadcastTitle')}</DialogTitle>
               <DialogDescription className="text-muted-foreground">
-                You are about to send this broadcast to{' '}
+                {t('scheduleSend.confirmDescPrefix')}{' '}
                 <span className="font-medium text-popover-foreground">{estimatedReach.toLocaleString()}</span>{' '}
-                contacts using the{' '}
-                <span className="font-medium text-popover-foreground">{template.name}</span> template.
-                This action cannot be undone.
+                {t('scheduleSend.confirmDescMid')}{' '}
+                <span className="font-medium text-popover-foreground">{template.name}</span>
+                {t('scheduleSend.confirmDescSuffix')}
               </DialogDescription>
             </DialogHeader>
             <DialogFooter>

@@ -32,12 +32,12 @@ export async function POST(request: Request) {
   }
 
   const body = await request.json().catch(() => null)
-  if (!body) return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
+  if (!body) return NextResponse.json({ error: 'JSON inválido' }, { status: 400 })
 
   const title = typeof body.title === 'string' ? body.title.trim() : ''
   const kind = body.kind === 'interactive' ? 'interactive' : 'text'
   if (!title) {
-    return NextResponse.json({ error: 'title is required' }, { status: 400 })
+    return NextResponse.json({ error: "O campo 'title' é obrigatório" }, { status: 400 })
   }
 
   let content_text: string | null = null
@@ -53,7 +53,7 @@ export async function POST(request: Request) {
     const text = typeof body.content_text === 'string' ? body.content_text : ''
     if (!text.trim()) {
       return NextResponse.json(
-        { error: 'content_text is required for text quick replies' },
+        { error: "O campo 'content_text' é obrigatório para respostas rápidas de texto" },
         { status: 400 },
       )
     }

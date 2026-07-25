@@ -1,0 +1,21 @@
+-- ============================================================
+-- 045_onboarding_dismissed.sql
+--
+-- The Dashboard onboarding checklist (migration 044's starter
+-- content) used a per-browser localStorage flag to remember
+-- dismissal. Two real bugs came from that: (1) it looked inconsistent
+-- across devices/browsers — dismiss it on one, it reappears on
+-- another, which reads as a bug rather than the (unintended)
+-- per-browser design, and (2) the card also auto-hid itself once
+-- every checklist item looked "done" — computed from account data on
+-- every dashboard load, so it could silently vanish and reappear as
+-- underlying data changed (e.g. a deal being deleted). Moving
+-- dismissal to a single account-level column fixes both: one
+-- explicit action, everyone on the account sees the same state
+-- forever after, and the component no longer needs to infer
+-- visibility from noisy derived data.
+--
+-- Idempotent — safe to re-run.
+-- ============================================================
+
+ALTER TABLE accounts ADD COLUMN IF NOT EXISTS onboarding_dismissed_at TIMESTAMPTZ;

@@ -70,16 +70,55 @@ export async function middleware(request: NextRequest) {
   }
 
   // Protected pages - redirect to login if not authenticated
-  const protectedPaths = ['/dashboard', '/inbox', '/contacts', '/pipelines', '/broadcasts', '/automations', '/settings']
+  const protectedPaths = ['/dashboard', '/inbox', '/contacts', '/pipelines', '/broadcasts', '/automations', '/settings', '/billing']
   if (!user && protectedPaths.some(path => request.nextUrl.pathname.startsWith(path))) {
     const url = request.nextUrl.clone()
     url.pathname = '/login'
     return withRefreshedCookies(NextResponse.redirect(url))
   }
 
-  // API routes that need auth (not webhooks)
+  // Billing gate — a signed-in user whose account has no valid
+  // subscription (or whose payment lapsed) is confined to /billing.
+  // Runs after the auth checks above so it only ever applies to a
+  // resolved session. One extra indexed query per protected-page
+  // request, same cost class as the auth.getUser() call already made
+  // above — see the plan doc for why this lives in middleware rather
+  // than only client-side (a disabled-JS or direct-navigation visitor
+  // must not slip past the gate).
+  const billingExemptPaths = ['/billing', '/api/billing/']
+  const isProtectedPath = protectedPaths.some(path => request.nextUrl.pathname.startsWith(path))
+  const isBillingExempt = billingExemptPaths.some(path => request.nextUrl.pathname.startsWith(path))
+  if (user && isProtectedPath && !isBillingExempt) {
+    const { data: profileRow } = await supabase
+      .from('profiles')
+      .select('account_id')
+      .eq('user_id', user.id)
+      .maybeSingle()
+
+    if (profileRow?.account_id) {
+      const { data: subscriptionRow } = await supabase
+        .from('subscriptions')
+        .select('status')
+        .eq('account_id', profileRow.account_id)
+        .in('status', ['trialing', 'active'])
+        .maybeSingle()
+
+      if (!subscriptionRow) {
+        const url = request.nextUrl.clone()
+        url.pathname = '/billing'
+        url.search = ''
+        return withRefreshedCookies(NextResponse.redirect(url))
+      }
+    }
+  }
+
+  // API routes that need auth (not webhooks). Both `/api/whatsapp/
+  // webhook` (Meta, HMAC-signed) and `/api/whatsapp/worker-webhook`
+  // (Baileys worker, bearer-secret) self-authenticate without a user
+  // session — match on "webhook" without a leading slash so the
+  // latter (no "/" before "webhook") is exempted too.
   if (!user && request.nextUrl.pathname.startsWith('/api/whatsapp/') &&
-      !request.nextUrl.pathname.includes('/webhook')) {
+      !request.nextUrl.pathname.includes('webhook')) {
     return withRefreshedCookies(
       NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     )

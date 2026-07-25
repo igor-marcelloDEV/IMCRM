@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/hooks/use-auth';
 import { Contact, MessageTemplate } from '@/types';
@@ -148,6 +149,7 @@ async function fetchCustomValueIndex(
 }
 
 export function useBroadcastSending(): UseBroadcastSendingReturn {
+  const t = useTranslations('Broadcasts.new');
   const { accountId } = useAuth();
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -412,7 +414,7 @@ export function useBroadcastSending(): UseBroadcastSendingReturn {
             })
             .eq('id', broadcast.id);
           throw new Error(
-            `Failed to insert recipient batch ${i / INSERT_BATCH_SIZE + 1}: ${recipientError.message}`,
+            t('errInsertRecipientBatch', { batch: i / INSERT_BATCH_SIZE + 1, message: recipientError.message }),
           );
         }
       }
@@ -425,7 +427,7 @@ export function useBroadcastSending(): UseBroadcastSendingReturn {
         .eq('broadcast_id', broadcast.id);
 
       if (recipientsFetchError || !recipients) {
-        throw new Error('Failed to fetch broadcast recipients');
+        throw new Error(t('errFetchRecipients'));
       }
 
       // One bulk fetch of custom values for every contact in this
@@ -487,7 +489,7 @@ export function useBroadcastSending(): UseBroadcastSendingReturn {
           const data = await res.json();
 
           if (!res.ok) {
-            throw new Error(data.error || 'Broadcast API request failed');
+            throw new Error(data.error || t('errBroadcastApiFailed'));
           }
 
           const resultsByPhone = new Map<string, BroadcastApiResult>();
@@ -505,7 +507,7 @@ export function useBroadcastSending(): UseBroadcastSendingReturn {
                 .from('broadcast_recipients')
                 .update({
                   status: 'failed',
-                  error_message: 'No phone number on contact',
+                  error_message: t('errNoPhoneNumber'),
                 })
                 .eq('id', recipient.id);
               continue;
@@ -527,7 +529,7 @@ export function useBroadcastSending(): UseBroadcastSendingReturn {
                 .from('broadcast_recipients')
                 .update({
                   status: 'failed',
-                  error_message: result.error ?? 'Unknown error',
+                  error_message: result.error ?? t('errUnknown'),
                 })
                 .eq('id', recipient.id);
             }
@@ -539,7 +541,7 @@ export function useBroadcastSending(): UseBroadcastSendingReturn {
               .from('broadcast_recipients')
               .update({
                 status: 'failed',
-                error_message: err instanceof Error ? err.message : 'Unknown error',
+                error_message: err instanceof Error ? err.message : t('errUnknown'),
               })
               .eq('id', recipient.id);
           }

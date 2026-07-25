@@ -31,7 +31,7 @@ export async function POST(request: Request) {
 
     if (authError || !user) {
       return NextResponse.json(
-        { error: 'Unauthorized' },
+        { error: 'Não autorizado' },
         { status: 401 }
       )
     }
@@ -55,7 +55,7 @@ export async function POST(request: Request) {
     const accountId = profile?.account_id as string | undefined
     if (!accountId) {
       return NextResponse.json(
-        { error: 'Your profile is not linked to an account.' },
+        { error: 'Seu perfil não está vinculado a uma conta.' },
         { status: 403 },
       )
     }
@@ -83,7 +83,7 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           error:
-            'Either conversation_id or contact_id, plus message_type, are required',
+            "É necessário informar 'conversation_id' ou 'contact_id', além de 'message_type'",
         },
         { status: 400 }
       )
@@ -123,7 +123,7 @@ export async function POST(request: Request) {
 
       if (convError || !data) {
         return NextResponse.json(
-          { error: 'Conversation not found' },
+          { error: 'Conversa não encontrada' },
           { status: 404 }
         )
       }
@@ -140,7 +140,7 @@ export async function POST(request: Request) {
 
       if (contactErr || !contactRow) {
         return NextResponse.json(
-          { error: 'Contact not found' },
+          { error: 'Contato não encontrado' },
           { status: 404 }
         )
       }
@@ -153,7 +153,7 @@ export async function POST(request: Request) {
       )
       if (!resolved) {
         return NextResponse.json(
-          { error: 'Failed to open a conversation for this contact' },
+          { error: 'Falha ao abrir uma conversa para este contato' },
           { status: 500 }
         )
       }
@@ -162,7 +162,7 @@ export async function POST(request: Request) {
 
     if (!conversationId) {
       return NextResponse.json(
-        { error: 'Conversation not found' },
+        { error: 'Conversa não encontrada' },
         { status: 404 }
       )
     }
@@ -203,7 +203,7 @@ export async function POST(request: Request) {
   } catch (error) {
     console.error('Error in WhatsApp send POST:', error)
     return NextResponse.json(
-      { error: 'Failed to send message' },
+      { error: 'Falha ao enviar a mensagem' },
       { status: 500 }
     )
   }

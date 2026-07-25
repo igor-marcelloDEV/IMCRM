@@ -18,6 +18,23 @@ interface DispatchArgs {
   /** The account's WhatsApp config owner, used for the outbound send's
    *  audit columns (mirrors how the flow runner passes it through). */
   configOwnerUserId: string
+  /**
+   * True when a `new_message_received`/`keyword_match` automation
+   * actually matched its trigger AND sent a customer-facing message
+   * for THIS inbound — computed by the caller (`ingestInboundMessage`,
+   * which already runs automation dispatch before this) from
+   * `runAutomationsForTrigger`'s return value.
+   *
+   * Deliberately NOT "does the account have any active automation of
+   * that type" — that check used to stand the AI down permanently
+   * whenever such an automation existed, even on messages it didn't
+   * actually respond to (e.g. a `new_message_received` automation
+   * gated behind a tag-presence `condition` step that took the 'no'
+   * branch and sent nothing). The AI is meant to cover the gap on
+   * exactly those messages, not go silent for the account's whole
+   * lifetime.
+   */
+  automationHandledMessage: boolean
 }
 
 /**
@@ -30,6 +47,7 @@ interface DispatchArgs {
  *
  * Eligibility gates (any → silent no-op):
  *   - AI off / auto-reply disabled for the account
+ *   - a message-level automation already sent a reply to this inbound
  *   - a human agent is assigned (they own the thread)
  *   - auto-reply was disabled for this conversation (prior handoff)
  *   - the per-conversation reply cap is reached
@@ -42,7 +60,7 @@ interface DispatchArgs {
 export async function dispatchInboundToAiReply(
   args: DispatchArgs,
 ): Promise<void> {
-  const { accountId, conversationId, contactId, configOwnerUserId } = args
+  const { accountId, conversationId, contactId, configOwnerUserId, automationHandledMessage } = args
 
   try {
     const db = supabaseAdmin()
@@ -50,22 +68,10 @@ export async function dispatchInboundToAiReply(
     const config = await loadAiConfig(db, accountId)
     if (!config || !config.autoReplyEnabled) return
 
-    // Deterministic, user-configured responders win over the LLM — the
-    // caller already excludes messages a Flow consumed. Message-level
-    // automations (`new_message_received` / `keyword_match`) are
-    // dispatched independently for this same inbound and may send their
-    // own reply, so if the account has any active one we stand down to
-    // avoid double-texting the customer. (Relationship triggers like
-    // `first_inbound_message` don't count — they're not per-message
-    // auto-responders.)
-    const { data: autoResponders } = await db
-      .from('automations')
-      .select('id')
-      .eq('account_id', accountId)
-      .eq('is_active', true)
-      .in('trigger_type', ['new_message_received', 'keyword_match'])
-      .limit(1)
-    if (autoResponders && autoResponders.length > 0) return
+    // Deterministic, user-configured responders win over the LLM for
+    // THIS message — but only when one actually fired and sent
+    // something. See the automationHandledMessage doc comment above.
+    if (automationHandledMessage) return
 
     const { data: conv, error: convErr } = await db
       .from('conversations')

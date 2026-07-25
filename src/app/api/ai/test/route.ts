@@ -23,19 +23,19 @@ export async function POST(request: Request) {
 
     const body = await request.json().catch(() => null)
     if (!body || typeof body !== 'object') {
-      return NextResponse.json({ error: 'Invalid request body' }, { status: 400 })
+      return NextResponse.json({ error: 'Corpo da requisição inválido' }, { status: 400 })
     }
 
     const provider = body.provider as AiProvider
     if (provider !== 'openai' && provider !== 'anthropic') {
       return NextResponse.json(
-        { error: 'provider must be "openai" or "anthropic"' },
+        { error: 'O campo "provider" deve ser "openai" ou "anthropic"' },
         { status: 400 },
       )
     }
     const model = typeof body.model === 'string' ? body.model.trim() : ''
     if (!model) {
-      return NextResponse.json({ error: 'model is required' }, { status: 400 })
+      return NextResponse.json({ error: "O campo 'model' é obrigatório" }, { status: 400 })
     }
 
     const rawKey = typeof body.api_key === 'string' ? body.api_key.trim() : ''
@@ -48,7 +48,7 @@ export async function POST(request: Request) {
         .maybeSingle()
       if (!existing?.api_key) {
         return NextResponse.json(
-          { error: 'Enter an API key to test.' },
+          { error: 'Digite uma chave de API para testar.' },
           { status: 400 },
         )
       }
@@ -56,7 +56,7 @@ export async function POST(request: Request) {
         apiKeyPlain = decrypt(existing.api_key)
       } catch {
         return NextResponse.json(
-          { error: 'Stored API key could not be decrypted — re-enter your key.' },
+          { error: 'Não foi possível descriptografar a chave de API armazenada — digite sua chave novamente.' },
           { status: 400 },
         )
       }
@@ -83,7 +83,7 @@ export async function POST(request: Request) {
       }
       console.error('[ai/test] validation error:', err)
       return NextResponse.json(
-        { error: 'Could not validate the API key.' },
+        { error: 'Não foi possível validar a chave de API.' },
         { status: 400 },
       )
     }

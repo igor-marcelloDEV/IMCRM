@@ -127,7 +127,8 @@ function emptyButton(type: TemplateButton['type']): TemplateButton {
 export function TemplateManager() {
   const t = useTranslations('Settings.templates');
   const supabase = createClient();
-  const { user, loading: authLoading } = useAuth();
+  const { user, account, loading: authLoading } = useAuth();
+  const isBaileysActive = account?.active_whatsapp_provider === 'baileys';
 
   const [loading, setLoading] = useState(true);
   const [templates, setTemplates] = useState<MessageTemplate[]>([]);
@@ -275,7 +276,7 @@ export function TemplateManager() {
       const data = await res.json();
       if (!res.ok) {
         throw new Error(
-          data?.error || `${isEdit ? 'Edit' : 'Submit'} failed (HTTP ${res.status})`,
+          data?.error || t(isEdit ? 'editFailedStatus' : 'submitFailedStatus', { status: res.status }),
         );
       }
       // Refresh first, then close — re-opening the dialog
@@ -308,7 +309,7 @@ export function TemplateManager() {
       const res = await fetch('/api/whatsapp/templates/sync', { method: 'POST' });
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data?.error || `Sync failed (HTTP ${res.status})`);
+        throw new Error(data?.error || t('syncFailedStatus', { status: res.status }));
       }
       toast.success(
         t('toastSyncCount', { total: data.total }) +
@@ -322,7 +323,7 @@ export function TemplateManager() {
             `${e.name} (${e.language})`,
         );
         const suffix =
-          data.errors.length > 3 ? `, +${data.errors.length - 3} more` : '';
+          data.errors.length > 3 ? t('moreErrorsSuffix', { count: data.errors.length - 3 }) : '';
         toast.error(t('toastSyncFailed', { preview: preview.join(', ') + suffix }));
       }
       if (data.truncated) {
@@ -356,7 +357,7 @@ export function TemplateManager() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        throw new Error(data?.error || `Delete failed (HTTP ${res.status})`);
+        throw new Error(data?.error || t('deleteFailedStatusHttp', { status: res.status }));
       }
       toast.success(t('toastDeleteSuccess'));
       setTemplates((prev) => prev.filter((t) => t.id !== target.id));
@@ -505,6 +506,24 @@ export function TemplateManager() {
         }
       />
 
+      {/* Provider-aware approval notice — what "Draft" actually means
+          depends entirely on which WhatsApp connection is active: the
+          official API refuses to send an unapproved template at all,
+          while Baileys never submits to Meta in the first place (it
+          flattens templates to plain text — see baileys-provider.ts),
+          so a "Draft" template there is already fully usable. */}
+      {isBaileysActive ? (
+        <div className="flex items-start gap-2 rounded-lg border border-blue-700/40 bg-blue-950/20 px-3 py-2 text-xs text-blue-300">
+          <AlertCircle className="size-4 mt-0.5 shrink-0" />
+          <p>{t('baileysApprovalNotice')}</p>
+        </div>
+      ) : (
+        <div className="flex items-start gap-2 rounded-lg border border-amber-700/40 bg-amber-950/20 px-3 py-2 text-xs text-amber-300">
+          <AlertCircle className="size-4 mt-0.5 shrink-0" />
+          <p>{t('metaApprovalNotice')}</p>
+        </div>
+      )}
+
       {templates.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-12 text-center">
@@ -547,7 +566,7 @@ export function TemplateManager() {
                                 ? 'text-yellow-400'
                                 : 'text-red-400'
                           }`}
-                          title="Meta quality score"
+                          title={t('metaQualityScore')}
                         >
                           {template.quality_score}
                         </span>
@@ -775,7 +794,7 @@ export function TemplateManager() {
                 <div className="space-y-2 mt-2">
                   <Input
                     id="template-header-text"
-                    aria-label="Header text"
+                    aria-label={t('headerTextAria')}
                     placeholder={t('headerTextPlaceholder')}
                     value={form.header_content}
                     onChange={(e) =>
@@ -845,7 +864,7 @@ export function TemplateManager() {
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
                       src={form.header_media_url}
-                      alt="Header sample"
+                      alt={t('headerSampleAlt')}
                       className="max-h-28 rounded-md border border-border object-contain"
                     />
                   )}

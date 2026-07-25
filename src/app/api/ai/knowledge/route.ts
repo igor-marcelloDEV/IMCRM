@@ -25,7 +25,7 @@ export async function GET() {
     if (error) {
       console.error('[ai/knowledge GET] error:', error)
       return NextResponse.json(
-        { error: 'Failed to load knowledge base' },
+        { error: 'Falha ao carregar base de conhecimento' },
         { status: 500 },
       )
     }
@@ -52,7 +52,7 @@ export async function POST(request: Request) {
     const content = typeof body?.content === 'string' ? body.content.trim() : ''
     if (!title || !content) {
       return NextResponse.json(
-        { error: 'title and content are required' },
+        { error: "Os campos 'title' e 'content' são obrigatórios" },
         { status: 400 },
       )
     }
@@ -65,7 +65,7 @@ export async function POST(request: Request) {
     if (error || !doc) {
       console.error('[ai/knowledge POST] insert error:', error)
       return NextResponse.json(
-        { error: 'Failed to save document' },
+        { error: 'Falha ao salvar o documento' },
         { status: 500 },
       )
     }
@@ -83,13 +83,13 @@ export async function POST(request: Request) {
         content,
       )
     } catch (err) {
-      const message = err instanceof AiError ? err.message : 'indexing failed'
+      const message = err instanceof AiError ? err.message : 'falha na indexação'
       console.error('[ai/knowledge POST] ingest error:', err)
       return NextResponse.json(
         {
           success: true,
           id: doc.id,
-          warning: `Saved, but semantic indexing failed (${message}). Lexical search still works; use Reindex to retry.`,
+          warning: `Salvo, mas a indexação semântica falhou (${message}). A busca por palavras-chave continua funcionando; use Reindexar para tentar novamente.`,
         },
         { status: 200 },
       )
@@ -100,7 +100,7 @@ export async function POST(request: Request) {
         success: true,
         id: doc.id,
         warning:
-          'Saved with keyword search only — your embeddings key could not be decrypted (check ENCRYPTION_KEY, then re-enter the key).',
+          'Salvo apenas com busca por palavras-chave — não foi possível descriptografar sua chave de embeddings (verifique ENCRYPTION_KEY e digite a chave novamente).',
       })
     }
     return NextResponse.json({ success: true, id: doc.id })

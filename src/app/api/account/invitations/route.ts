@@ -63,12 +63,12 @@ import {
 //
 //   When `ALLOWED_INVITE_HOSTS` is set (comma-separated hostnames),
 //   we validate the derived host against the list. Anything not
-//   on the list falls through to the wacrm.tech fallback with a
+//   on the list falls through to the imcrm.tech fallback with a
 //   loud console.warn. Operators who care about this attack
 //   surface should set this to their canonical hostnames; everyone
 //   else gets today's permissive behavior.
 //
-// Previous implementation hard-defaulted to `https://wacrm.tech`
+// Previous implementation hard-defaulted to `https://imcrm.tech`
 // (the docs/marketing site, a different repo). Forks that didn't
 // set `NEXT_PUBLIC_SITE_URL` got invite links pointing at the
 // marketing site, which 404s on `/join/<token>`. This resolution
@@ -131,7 +131,7 @@ function getBaseUrl(request: Request): string {
       "[POST /api/account/invitations] could not derive base URL from request; falling back to marketing domain",
     );
   }
-  return "https://wacrm.tech";
+  return "https://imcrm.tech";
 }
 
 const MAX_LABEL_LEN = 80;
@@ -153,7 +153,7 @@ export async function GET() {
     if (error) {
       console.error("[GET /api/account/invitations] fetch error:", error);
       return NextResponse.json(
-        { error: "Failed to load invitations" },
+        { error: "Falha ao carregar os convites" },
         { status: 500 },
       );
     }
@@ -188,7 +188,7 @@ export async function POST(request: Request) {
       // here gives a clearer 400 than the eventual constraint
       // violation surfaced as a 500.
       return NextResponse.json(
-        { error: "'role' must be one of admin, agent, viewer" },
+        { error: "O campo 'role' deve ser admin, agent ou viewer" },
         { status: 400 },
       );
     }
@@ -207,7 +207,7 @@ export async function POST(request: Request) {
       const trimmed = body.label.trim();
       if (trimmed.length > MAX_LABEL_LEN) {
         return NextResponse.json(
-          { error: `Label must be ${MAX_LABEL_LEN} characters or fewer` },
+          { error: `O rótulo deve ter no máximo ${MAX_LABEL_LEN} caracteres` },
           { status: 400 },
         );
       }
@@ -232,7 +232,7 @@ export async function POST(request: Request) {
     if (error || !data) {
       console.error("[POST /api/account/invitations] insert error:", error);
       return NextResponse.json(
-        { error: "Failed to create invitation" },
+        { error: "Falha ao criar o convite" },
         { status: 500 },
       );
     }

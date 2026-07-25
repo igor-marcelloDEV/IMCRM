@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { sendTemplateMessage } from '@/lib/whatsapp/meta-api'
-import { decrypt } from '@/lib/whatsapp/encryption'
+import { getProviderForAccount } from '@/lib/whatsapp/provider-factory'
+import { ProviderError } from '@/lib/whatsapp/provider'
 import type { SendTimeParams } from '@/lib/whatsapp/template-send-builder'
 import { isMessageTemplate } from '@/lib/whatsapp/template-row-guard'
 import {
@@ -68,7 +68,7 @@ export async function POST(request: Request) {
     } = await supabase.auth.getUser()
 
     if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      return NextResponse.json({ error: 'Não autorizado' }, { status: 401 })
     }
 
     // Per-user broadcast budget. Note: this limits how often a user
@@ -91,7 +91,7 @@ export async function POST(request: Request) {
     const accountId = profile?.account_id as string | undefined
     if (!accountId) {
       return NextResponse.json(
-        { error: 'Your profile is not linked to an account.' },
+        { error: 'Seu perfil não está vinculado a uma conta.' },
         { status: 403 },
       )
     }
@@ -121,7 +121,7 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           error:
-            'Provide either `recipients` (preferred) or `phone_numbers` — must be a non-empty array',
+            'Forneça `recipients` (preferido) ou `phone_numbers` — deve ser uma lista não vazia',
         },
         { status: 400 }
       )
@@ -129,30 +129,23 @@ export async function POST(request: Request) {
 
     if (!template_name) {
       return NextResponse.json(
-        { error: 'template_name is required' },
+        { error: "O campo 'template_name' é obrigatório" },
         { status: 400 }
       )
     }
 
-    const { data: config, error: configError } = await supabase
-      .from('whatsapp_config')
-      .select('*')
-      .eq('account_id', accountId)
-      .single()
-
-    if (configError || !config) {
-      return NextResponse.json(
-        {
-          error:
-            'WhatsApp not configured. Please set up your WhatsApp integration first.',
-        },
-        { status: 400 }
-      )
+    let provider
+    try {
+      provider = await getProviderForAccount(supabase, accountId)
+    } catch (err) {
+      const message =
+        err instanceof ProviderError
+          ? err.message
+          : 'O WhatsApp® não está configurado. Configure sua integração com o WhatsApp primeiro.'
+      return NextResponse.json({ error: message }, { status: 400 })
     }
 
-    const accessToken = decrypt(config.access_token)
-
-    // Load the template row once so sendTemplateMessage can build
+    // Load the template row once so sendTemplate can build
     // header + button components on each iteration. Loading inside
     // the loop would N+1 against Supabase for every recipient.
     // Guard against a malformed local row crashing every send in
@@ -168,7 +161,7 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           error:
-            'Template row is malformed locally — run "Sync from Meta" in Settings to repair it before broadcasting.',
+            'O modelo está corrompido localmente — use "Sincronizar da Meta" em Configurações → Modelos para corrigi-lo antes de disparar.',
         },
         { status: 500 },
       )
@@ -186,7 +179,7 @@ export async function POST(request: Request) {
         results.push({
           phone: recipient.phone,
           status: 'failed',
-          error: 'Invalid phone number format',
+          error: 'Formato de número de telefone inválido',
         })
         failedCount++
         continue
@@ -200,9 +193,7 @@ export async function POST(request: Request) {
 
       for (const variant of variants) {
         try {
-          const result = await sendTemplateMessage({
-            phoneNumberId: config.phone_number_id,
-            accessToken,
+          const result = await provider.sendTemplate({
             to: variant,
             templateName: template_name,
             language: template_language || 'en_US',
@@ -210,12 +201,12 @@ export async function POST(request: Request) {
             messageParams: recipient.messageParams,
             params: recipient.params ?? [],
           })
-          sentMessageId = result.messageId
+          sentMessageId = result.providerMessageKey
           lastError = null
           break
         } catch (error) {
           const errorMessage =
-            error instanceof Error ? error.message : 'Unknown error'
+            error instanceof Error ? error.message : 'Erro desconhecido'
           if (!isRecipientNotAllowedError(errorMessage)) {
             lastError = errorMessage
             break
@@ -240,7 +231,7 @@ export async function POST(request: Request) {
         results.push({
           phone: recipient.phone,
           status: 'failed',
-          error: lastError || 'Unknown error',
+          error: lastError || 'Erro desconhecido',
         })
         failedCount++
       }
@@ -256,7 +247,7 @@ export async function POST(request: Request) {
   } catch (error) {
     console.error('Error in WhatsApp broadcast POST:', error)
     return NextResponse.json(
-      { error: 'Failed to process broadcast' },
+      { error: 'Falha ao processar o disparo' },
       { status: 500 }
     )
   }

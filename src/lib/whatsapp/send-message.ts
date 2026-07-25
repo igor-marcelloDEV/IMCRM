@@ -21,20 +21,15 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-import {
-  sendTextMessage,
-  sendTemplateMessage,
-  sendMediaMessage,
-  sendInteractiveButtons,
-  sendInteractiveList,
-  type MediaKind,
-} from '@/lib/whatsapp/meta-api';
+import { type MediaKind } from '@/lib/whatsapp/meta-api';
 import {
   validateInteractivePayload,
   interactivePayloadPreviewText,
   type InteractiveMessagePayload,
 } from '@/lib/whatsapp/interactive';
-import { decrypt, encrypt, isLegacyFormat } from '@/lib/whatsapp/encryption';
+import { getProviderForAccount } from '@/lib/whatsapp/provider-factory';
+import { ProviderError, type WhatsAppProvider } from '@/lib/whatsapp/provider';
+import type { SendTimeParams } from '@/lib/whatsapp/template-send-builder';
 import { supabaseAdmin } from '@/lib/flows/admin-client';
 import {
   sanitizePhoneForMeta,
@@ -247,37 +242,17 @@ export async function sendMessageToConversation(
     );
   }
 
-  // WhatsApp config, account-scoped.
-  const { data: config, error: configError } = await db
-    .from('whatsapp_config')
-    .select('*')
-    .eq('account_id', accountId)
-    .single();
-
-  if (configError || !config) {
-    throw new SendMessageError(
-      'whatsapp_not_configured',
-      'WhatsApp not configured. Please set up your WhatsApp integration first.',
-      400
-    );
-  }
-
-  const accessToken = decrypt(config.access_token);
-
-  // Self-heal legacy CBC ciphertexts. Fire-and-forget; idempotent.
-  if (isLegacyFormat(config.access_token)) {
-    void db
-      .from('whatsapp_config')
-      .update({ access_token: encrypt(accessToken) })
-      .eq('id', config.id)
-      .then(({ error }: { error: { message: string } | null }) => {
-        if (error) {
-          console.warn(
-            '[send-message] access_token GCM upgrade failed:',
-            error.message
-          );
-        }
-      });
+  // Resolve the account's active WhatsApp provider (Meta Cloud API or
+  // Baileys/WhatsApp Web) — encapsulates the whatsapp_config /
+  // baileys_connections lookup so this function stays provider-agnostic.
+  let provider: WhatsAppProvider;
+  try {
+    provider = await getProviderForAccount(db, accountId);
+  } catch (err) {
+    if (err instanceof ProviderError) {
+      throw new SendMessageError(err.code, err.message, 400);
+    }
+    throw err;
   }
 
   // Resolve the reply target to its Meta message_id. The parent must
@@ -331,23 +306,19 @@ export async function sendMessageToConversation(
 
   const attempt = async (phone: string): Promise<string> => {
     if (messageType === 'template') {
-      const result = await sendTemplateMessage({
-        phoneNumberId: config.phone_number_id,
-        accessToken,
+      const result = await provider.sendTemplate({
         to: phone,
         templateName: templateName!,
         language: templateLanguage || 'en_US',
         template: templateRow ?? undefined,
-        messageParams: templateMessageParams ?? undefined,
+        messageParams: templateMessageParams as SendTimeParams | undefined,
         params: templateParams || [],
         contextMessageId,
       });
-      return result.messageId;
+      return result.providerMessageKey;
     }
     if (isMediaKind) {
-      const result = await sendMediaMessage({
-        phoneNumberId: config.phone_number_id,
-        accessToken,
+      const result = await provider.sendMedia({
         to: phone,
         kind: messageType as MediaKind,
         link: mediaUrl!,
@@ -355,44 +326,22 @@ export async function sendMessageToConversation(
         filename: filename || undefined,
         contextMessageId,
       });
-      return result.messageId;
+      return result.providerMessageKey;
     }
     if (messageType === 'interactive') {
-      const p = interactivePayload!;
-      if (p.kind === 'buttons') {
-        const result = await sendInteractiveButtons({
-          phoneNumberId: config.phone_number_id,
-          accessToken,
-          to: phone,
-          bodyText: p.body,
-          headerText: p.header || undefined,
-          footerText: p.footer || undefined,
-          buttons: p.buttons,
-          contextMessageId,
-        });
-        return result.messageId;
-      }
-      const result = await sendInteractiveList({
-        phoneNumberId: config.phone_number_id,
-        accessToken,
+      const result = await provider.sendInteractive({
         to: phone,
-        bodyText: p.body,
-        buttonLabel: p.button_label,
-        headerText: p.header || undefined,
-        footerText: p.footer || undefined,
-        sections: p.sections,
+        payload: interactivePayload!,
         contextMessageId,
       });
-      return result.messageId;
+      return result.providerMessageKey;
     }
-    const result = await sendTextMessage({
-      phoneNumberId: config.phone_number_id,
-      accessToken,
+    const result = await provider.sendText({
       to: phone,
       text: contentText!,
       contextMessageId,
     });
-    return result.messageId;
+    return result.providerMessageKey;
   };
 
   // Send via Meta — retry across phone-number variants if Meta rejects
@@ -425,9 +374,10 @@ export async function sendMessageToConversation(
     if (lastError) throw lastError;
   } catch (err) {
     const message =
-      err instanceof Error ? err.message : 'Unknown Meta API error';
-    console.error('[send-message] Meta send failed for all variants:', message);
-    throw new SendMessageError('meta_error', `Meta API error: ${message}`, 502);
+      err instanceof Error ? err.message : 'Unknown WhatsApp provider error';
+    console.error('[send-message] provider send failed for all variants:', message);
+    const code = err instanceof ProviderError ? err.code : 'meta_error';
+    throw new SendMessageError(code, message, 502);
   }
 
   if (workingPhone !== sanitizedPhone) {
@@ -460,6 +410,8 @@ export async function sendMessageToConversation(
       interactive_payload:
         messageType === 'interactive' ? interactivePayload : null,
       message_id: waMessageId,
+      provider: provider.type,
+      provider_message_key: waMessageId,
       status: 'sent',
       reply_to_message_id: replyToMessageId || null,
     })

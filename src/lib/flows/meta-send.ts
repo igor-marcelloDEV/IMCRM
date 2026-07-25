@@ -1,14 +1,10 @@
-import {
-  sendInteractiveButtons,
-  sendInteractiveList,
-  sendMediaMessage,
-  sendTextMessage,
-  type InteractiveButton,
-  type InteractiveListSection,
-  type MediaKind,
+import type {
+  InteractiveButton,
+  InteractiveListSection,
+  MediaKind,
 } from '@/lib/whatsapp/meta-api'
 import type { InteractiveMessagePayload } from '@/lib/whatsapp/interactive'
-import { decrypt } from '@/lib/whatsapp/encryption'
+import { getProviderForAccount } from '@/lib/whatsapp/provider-factory'
 import {
   sanitizePhoneForMeta,
   isValidE164,
@@ -82,25 +78,14 @@ export async function engineSendText(
     throw new Error(`contact phone invalid: ${contact.phone}`)
   }
 
-  const { data: config, error: configErr } = await db
-    .from('whatsapp_config')
-    .select('*')
-    .eq('account_id', args.accountId)
-    .single()
-  if (configErr || !config) {
-    throw new Error('WhatsApp not configured for this account')
-  }
-
-  const accessToken = decrypt(config.access_token)
+  const provider = await getProviderForAccount(db, args.accountId)
 
   const attempt = async (phone: string): Promise<string> => {
-    const r = await sendTextMessage({
-      phoneNumberId: config.phone_number_id,
-      accessToken,
+    const r = await provider.sendText({
       to: phone,
       text: args.text,
     })
-    return r.messageId
+    return r.providerMessageKey
   }
 
   const variants = phoneVariants(sanitized)
@@ -131,6 +116,8 @@ export async function engineSendText(
     content_type: 'text',
     content_text: args.text,
     message_id: waMessageId,
+    provider: provider.type,
+    provider_message_key: waMessageId,
     status: 'sent',
     ai_generated: args.aiGenerated ?? false,
   })
@@ -192,28 +179,17 @@ export async function engineSendMedia(
     throw new Error(`contact phone invalid: ${contact.phone}`)
   }
 
-  const { data: config, error: configErr } = await db
-    .from('whatsapp_config')
-    .select('*')
-    .eq('account_id', args.accountId)
-    .single()
-  if (configErr || !config) {
-    throw new Error('WhatsApp not configured for this account')
-  }
-
-  const accessToken = decrypt(config.access_token)
+  const provider = await getProviderForAccount(db, args.accountId)
 
   const attempt = async (phone: string): Promise<string> => {
-    const r = await sendMediaMessage({
-      phoneNumberId: config.phone_number_id,
-      accessToken,
+    const r = await provider.sendMedia({
       to: phone,
       kind: args.kind,
       link: args.link,
       caption: args.caption,
       filename: args.filename,
     })
-    return r.messageId
+    return r.providerMessageKey
   }
 
   const variants = phoneVariants(sanitized)
@@ -249,6 +225,8 @@ export async function engineSendMedia(
     content_type: args.kind,
     content_text: args.caption ?? null,
     message_id: waMessageId,
+    provider: provider.type,
+    provider_message_key: waMessageId,
     status: 'sent',
   })
   if (msgErr) {
@@ -344,41 +322,31 @@ async function sendInteractiveViaMeta(
     throw new Error(`contact phone invalid: ${contact.phone}`)
   }
 
-  const { data: config, error: configErr } = await db
-    .from('whatsapp_config')
-    .select('*')
-    .eq('account_id', input.accountId)
-    .single()
-  if (configErr || !config) {
-    throw new Error('WhatsApp not configured for this account')
-  }
+  const provider = await getProviderForAccount(db, input.accountId)
 
-  const accessToken = decrypt(config.access_token)
+  // Built once and reused both for the send and for the persisted row
+  // below, so the thread re-renders exactly what was sent.
+  const interactivePayload: InteractiveMessagePayload =
+    input.kind === 'buttons'
+      ? {
+          kind: 'buttons',
+          body: input.bodyText,
+          header: input.headerText,
+          footer: input.footerText,
+          buttons: input.buttons,
+        }
+      : {
+          kind: 'list',
+          body: input.bodyText,
+          header: input.headerText,
+          footer: input.footerText,
+          button_label: input.buttonLabel,
+          sections: input.sections,
+        }
 
   const attempt = async (phone: string): Promise<string> => {
-    if (input.kind === 'buttons') {
-      const r = await sendInteractiveButtons({
-        phoneNumberId: config.phone_number_id,
-        accessToken,
-        to: phone,
-        bodyText: input.bodyText,
-        buttons: input.buttons,
-        headerText: input.headerText,
-        footerText: input.footerText,
-      })
-      return r.messageId
-    }
-    const r = await sendInteractiveList({
-      phoneNumberId: config.phone_number_id,
-      accessToken,
-      to: phone,
-      bodyText: input.bodyText,
-      buttonLabel: input.buttonLabel,
-      sections: input.sections,
-      headerText: input.headerText,
-      footerText: input.footerText,
-    })
-    return r.messageId
+    const r = await provider.sendInteractive({ to: phone, payload: interactivePayload })
+    return r.providerMessageKey
   }
 
   // Same phone-variant retry as automations/meta-send.ts. Numbers
@@ -417,24 +385,6 @@ async function sendInteractiveViaMeta(
   // when their reply arrives. We DO persist the structured payload so
   // the inbox thread re-renders the buttons/rows the bot sent (round-
   // trip), matching the composer + automation send paths.
-  const interactivePayload: InteractiveMessagePayload =
-    input.kind === 'buttons'
-      ? {
-          kind: 'buttons',
-          body: input.bodyText,
-          header: input.headerText,
-          footer: input.footerText,
-          buttons: input.buttons,
-        }
-      : {
-          kind: 'list',
-          body: input.bodyText,
-          header: input.headerText,
-          footer: input.footerText,
-          button_label: input.buttonLabel,
-          sections: input.sections,
-        }
-
   const { error: msgErr } = await db.from('messages').insert({
     conversation_id: input.conversationId,
     sender_type: 'bot',
@@ -442,6 +392,8 @@ async function sendInteractiveViaMeta(
     content_text: input.bodyText,
     interactive_payload: interactivePayload,
     message_id: waMessageId,
+    provider: provider.type,
+    provider_message_key: waMessageId,
     status: 'sent',
   })
   if (msgErr) {

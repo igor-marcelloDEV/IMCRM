@@ -626,6 +626,7 @@ function SendTemplateFields({
 export function AutomationBuilder({ initial }: { initial: BuilderInitial }) {
   const router = useRouter()
   const t = useTranslations("Automations.builder")
+  const tValidation = useTranslations("Automations.validation")
   const isEditing = !!initial.id
   const [state, setState] = useState<BuilderInitial>(initial)
   const [saving, setSaving] = useState(false)
@@ -664,7 +665,7 @@ export function AutomationBuilder({ initial }: { initial: BuilderInitial }) {
     setSaving(true)
     try {
       const payload = {
-        name: state.name || "Untitled automation",
+        name: state.name || t("untitled"),
         description: state.description || null,
         trigger_type: state.trigger_type,
         trigger_config: state.trigger_config,
@@ -688,12 +689,16 @@ export function AutomationBuilder({ initial }: { initial: BuilderInitial }) {
       if (!res.ok) {
         // If the server blocked activation with validation issues,
         // surface the first concrete problem so the user can fix it
-        // without opening DevTools for the full array.
-        const firstIssue: { path?: string; message?: string } | undefined =
-          body?.issues?.[0]
-        if (firstIssue?.message) {
-          toast.error(firstIssue.message, {
-            description: firstIssue.path ? `at ${firstIssue.path}` : undefined,
+        // without opening DevTools for the full array. messageKey/params
+        // come straight from src/lib/automations/validate.ts — see that
+        // file's header comment for why (the previous version rendered
+        // `firstIssue.message`, hardcoded English, straight to the UI).
+        const firstIssue:
+          | { path?: string; messageKey?: string; params?: Record<string, string | number> }
+          | undefined = body?.issues?.[0]
+        if (firstIssue?.messageKey) {
+          toast.error(tValidation(`messages.${firstIssue.messageKey}`, firstIssue.params), {
+            description: firstIssue.path ? tValidation("atPath", { path: firstIssue.path }) : undefined,
           })
         } else {
           toast.error(body?.error ?? t("toasts.saveFailed"))
@@ -866,7 +871,7 @@ function TriggerCard({
                   {t("schedule")}
                 </label>
                 <Input
-                  placeholder="Cron expression or HH:mm"
+                  placeholder={t("schedulePlaceholder")}
                   value={(config.schedule as string) ?? ""}
                   onChange={(e) =>
                     onConfigChange({ ...config, schedule: e.target.value })
@@ -1133,7 +1138,7 @@ function StepRenderer({
                     variant="ghost"
                     size="icon"
                     disabled={index === 0}
-                    aria-label="Move up"
+                    aria-label={t("moveUp")}
                     onClick={() => props.moveStepAt(path, -1)}
                   >
                     <ArrowUp className="h-4 w-4" />
@@ -1142,7 +1147,7 @@ function StepRenderer({
                     variant="ghost"
                     size="icon"
                     disabled={index === total - 1}
-                    aria-label="Move down"
+                    aria-label={t("moveDown")}
                     onClick={() => props.moveStepAt(path, 1)}
                   >
                     <ArrowDown className="h-4 w-4" />

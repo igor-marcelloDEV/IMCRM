@@ -54,7 +54,7 @@ export function ConversationList({
   resyncToken = 0,
 }: ConversationListProps) {
   const t = useTranslations("Inbox.conversationList");
-  
+
   const FILTER_OPTIONS: { label: string; value: InboxFilter }[] = useMemo(() => [
     { label: t("filterAll"), value: "all" },
     { label: t("filterUnread"), value: "unread" },
@@ -436,6 +436,7 @@ function ConversationItem({
   onSelect,
   t,
 }: ConversationItemProps) {
+  const tThread = useTranslations("Inbox.messageThread");
   const contact = conversation.contact;
   const displayName = contact?.name || contact?.phone || t("unknown");
   const initials = displayName.charAt(0).toUpperCase();
@@ -494,7 +495,13 @@ function ConversationItem({
                 "h-2 w-2 rounded-full",
                 STATUS_COLORS[conversation.status]
               )}
-              title={conversation.status}
+              title={
+                conversation.status === "open"
+                  ? tThread("statusOpen")
+                  : conversation.status === "pending"
+                    ? tThread("statusPending")
+                    : tThread("statusClosed")
+              }
             />
           </div>
         </div>

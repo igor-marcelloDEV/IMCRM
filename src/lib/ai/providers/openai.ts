@@ -56,7 +56,7 @@ export async function generateOpenAi(args: ProviderArgs): Promise<ProviderResult
   const data = (await res.json().catch(() => null)) as OpenAiResponse | null
   const text = data?.choices?.[0]?.message?.content
   if (!text || typeof text !== 'string' || !text.trim()) {
-    throw new AiError('OpenAI returned an empty response.', {
+    throw new AiError('A OpenAI retornou uma resposta vazia.', {
       code: 'empty_response',
     })
   }

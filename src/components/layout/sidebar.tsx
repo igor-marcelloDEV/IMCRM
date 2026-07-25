@@ -10,6 +10,7 @@ import { useUnreadNotifications } from "@/hooks/use-unread-notifications";
 import {
   Bell,
   Bot,
+  CreditCard,
   Crown,
   GitBranch,
   LayoutDashboard,
@@ -101,6 +102,8 @@ const navItems: NavItem[] = [
   { href: "/agents", labelKey: "aiAgents", icon: Bot },
 ];
 
+const billingNavItem: NavItem = { href: "/billing", labelKey: "billing", icon: CreditCard };
+
 const bottomNavItems = [
   { href: "/settings", labelKey: "settings", icon: Settings },
 ];
@@ -109,16 +112,25 @@ interface SidebarProps {
   /** Controlled on mobile by the Header's hamburger button. Ignored on lg+. */
   open?: boolean;
   onClose?: () => void;
+  /**
+   * True when the account has no valid subscription — collapses the
+   * nav down to just "Cobrança" (billing) so an unpaid/expired
+   * account can't navigate to a page it's about to get redirected
+   * away from anyway. See dashboard-shell.tsx.
+   */
+  billingRestricted?: boolean;
 }
 
 import { useTranslations } from "next-intl";
 
-export function Sidebar({ open = false, onClose }: SidebarProps) {
+export function Sidebar({ open = false, onClose, billingRestricted = false }: SidebarProps) {
   const t = useTranslations("Sidebar");
   const pathname = usePathname();
   const { profile, profileLoading, account, accountRole, signOut } = useAuth();
   const totalUnread = useTotalUnread();
   const unreadNotifications = useUnreadNotifications();
+  const visibleNavItems = billingRestricted ? [billingNavItem] : [...navItems, billingNavItem];
+  const visibleBottomNavItems = billingRestricted ? [] : bottomNavItems;
   // Only surface the account-name strip when it actually carries
   // information. A solo user's personal account is named after them
   // (the 017 signup trigger seeds it from `full_name`), so showing it
@@ -182,7 +194,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
           // Desktop: static, always visible — reset all the mobile framing.
           "lg:static lg:z-0 lg:w-60 lg:translate-x-0 lg:transition-none",
         )}
-        aria-label="Primary"
+        aria-label={t("primaryNavAria")}
       >
         {/* Logo row. On mobile we put a close button here; on desktop the
             close button is hidden since the sidebar is always-visible. */}
@@ -191,8 +203,8 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
               <MessageSquare className="h-4 w-4" />
             </div>
-            <span className="text-sm font-semibold text-foreground">
-              {t("title")}
+            <span className="text-sm font-semibold tracking-tight text-foreground">
+              <span className="text-primary">IM</span> CRM
             </span>
           </Link>
           <button
@@ -208,7 +220,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
         {/* Main navigation */}
         <nav className="flex-1 overflow-y-auto px-3 py-4">
           <ul className="flex flex-col gap-1">
-            {navItems.map((item) => {
+            {visibleNavItems.map((item) => {
               const isActive =
                 pathname === item.href ||
                 (item.href !== "/dashboard" && pathname.startsWith(item.href));
@@ -271,7 +283,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
           <div className="my-4 border-t border-border" />
 
           <ul className="flex flex-col gap-1">
-            {bottomNavItems.map((item) => {
+            {visibleBottomNavItems.map((item) => {
               const isActive = pathname.startsWith(item.href);
               return (
                 <li key={item.href}>

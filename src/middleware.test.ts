@@ -8,12 +8,43 @@ import { NextRequest } from "next/server";
 //                      i.e. the freshly *rotated* auth token. The whole point
 //                      of the test is that these must survive onto whatever
 //                      response the middleware returns — including redirects.
+// `mockAccountId`    — profiles.account_id the billing gate looks up for
+//                      `mockUser`; null mirrors a profile row that hasn't
+//                      resolved (the gate no-ops rather than blocking).
+// `mockSubscriptionStatus` — the account's live subscription status, or
+//                      null for "no active/trialing row" (the billing gate
+//                      redirects in that case).
 let mockUser: { id: string } | null = null;
 let refreshedCookies: Array<{
   name: string;
   value: string;
   options: Record<string, unknown>;
 }> = [];
+let mockAccountId: string | null = "acct-1";
+let mockSubscriptionStatus: "active" | "trialing" | null = "active";
+
+// Minimal chainable query-builder stub — just enough surface for the two
+// call shapes middleware.ts actually uses (profiles / subscriptions
+// point lookups), not a general Supabase client mock.
+function fromMock(table: string) {
+  const chain = {
+    select: () => chain,
+    eq: () => chain,
+    in: () => chain,
+    maybeSingle: async () => {
+      if (table === "profiles") {
+        return { data: mockAccountId ? { account_id: mockAccountId } : null };
+      }
+      if (table === "subscriptions") {
+        return {
+          data: mockSubscriptionStatus ? { status: mockSubscriptionStatus } : null,
+        };
+      }
+      return { data: null };
+    },
+  };
+  return chain;
+}
 
 vi.mock("@supabase/ssr", () => ({
   createServerClient: (
@@ -32,6 +63,7 @@ vi.mock("@supabase/ssr", () => ({
         return { data: { user: mockUser } };
       },
     },
+    from: fromMock,
   }),
 }));
 
@@ -43,6 +75,8 @@ beforeEach(() => {
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = "anon-key";
   mockUser = null;
   refreshedCookies = [];
+  mockAccountId = "acct-1";
+  mockSubscriptionStatus = "active";
 });
 
 afterEach(() => vi.clearAllMocks());
@@ -109,5 +143,54 @@ describe("middleware — refreshed auth cookies survive redirects", () => {
     // No redirect — the normal NextResponse.next() already carries cookies.
     expect(res.headers.get("location")).toBeNull();
     expect(res.cookies.get(ROTATED.name)?.value).toBe(ROTATED.value);
+  });
+});
+
+describe("middleware — billing gate", () => {
+  it("redirects to /billing when the account has no active/trialing subscription", async () => {
+    mockUser = { id: "user-1" };
+    mockSubscriptionStatus = null;
+
+    const res = await middleware(new NextRequest("https://app.test/dashboard"));
+
+    expect(res.status).toBe(307);
+    expect(res.headers.get("location")).toContain("/billing");
+  });
+
+  it("does not redirect when the subscription is active", async () => {
+    mockUser = { id: "user-1" };
+    mockSubscriptionStatus = "active";
+
+    const res = await middleware(new NextRequest("https://app.test/dashboard"));
+
+    expect(res.headers.get("location")).toBeNull();
+  });
+
+  it("does not redirect when the subscription is trialing", async () => {
+    mockUser = { id: "user-1" };
+    mockSubscriptionStatus = "trialing";
+
+    const res = await middleware(new NextRequest("https://app.test/inbox"));
+
+    expect(res.headers.get("location")).toBeNull();
+  });
+
+  it("never redirects /billing itself, even with no subscription", async () => {
+    mockUser = { id: "user-1" };
+    mockSubscriptionStatus = null;
+
+    const res = await middleware(new NextRequest("https://app.test/billing"));
+
+    expect(res.headers.get("location")).toBeNull();
+  });
+
+  it("no-ops when the profile hasn't resolved an account_id yet", async () => {
+    mockUser = { id: "user-1" };
+    mockAccountId = null;
+    mockSubscriptionStatus = null;
+
+    const res = await middleware(new NextRequest("https://app.test/dashboard"));
+
+    expect(res.headers.get("location")).toBeNull();
   });
 });

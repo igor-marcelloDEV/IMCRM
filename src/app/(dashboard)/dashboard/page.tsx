@@ -26,6 +26,7 @@ import type {
   ResponseTimeSummary,
 } from '@/lib/dashboard/types'
 
+import { OnboardingChecklist } from '@/components/dashboard/onboarding-checklist'
 import { MetricCard } from '@/components/dashboard/metric-card'
 import { SkeletonCard } from '@/components/dashboard/skeleton'
 import { QuickActions } from '@/components/dashboard/quick-actions'
@@ -40,6 +41,7 @@ type RangeDays = 7 | 30 | 90
 
 export default function DashboardPage() {
   const t = useTranslations('Dashboard.page')
+  const tActivity = useTranslations('Dashboard.activityFeed')
   const { defaultCurrency } = useAuth()
   const [metrics, setMetrics] = useState<MetricsBundle | null>(null)
   const [metricsLoading, setMetricsLoading] = useState(true)
@@ -93,11 +95,11 @@ export default function DashboardPage() {
     // Fetch up to 50 so the biggest page-size option in the feed
     // (50 rows) is already in memory — switching sizes then becomes
     // a pure client-side slice with no extra round trip.
-    void loadActivity(db, 50)
+    void loadActivity(db, 50, tActivity)
       .then((a) => setActivity(a))
       .catch((err) => console.error('[dashboard] activity failed:', err))
       .finally(() => setActivityLoading(false))
-  }, [])
+  }, [tActivity])
 
   useEffect(() => {
     loadAll()
@@ -130,6 +132,8 @@ export default function DashboardPage() {
           {t('description')}
         </p>
       </div>
+
+      <OnboardingChecklist />
 
       {/* Metric cards */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">

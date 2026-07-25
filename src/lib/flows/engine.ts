@@ -90,6 +90,52 @@ export function matchReplyId(
 }
 
 /**
+ * Text-reply fallback for a `send_buttons`/`send_list` node, for
+ * providers with no real tappable buttons (Baileys/WhatsApp Web —
+ * `BaileysWorkerProvider.sendInteractive` degrades the prompt to a
+ * numbered text menu via `renderInteractiveAsText`). Matches the
+ * customer's typed reply against option POSITION ("2") or TITLE text
+ * ("Site novo"), so a menu sent as text still advances the run the
+ * same way a real button tap would via `matchReplyId`.
+ *
+ * Position numbering must stay in lockstep with
+ * `renderInteractiveAsText` in src/lib/whatsapp/interactive.ts — both
+ * number buttons/list-rows 1-indexed, continuously across list
+ * sections (no per-section reset).
+ */
+export function matchReplyText(
+  node: { node_type: string; config: Record<string, unknown> },
+  text: string,
+): string | null {
+  const trimmed = text.trim();
+  if (!trimmed) return null;
+
+  if (node.node_type === "send_buttons") {
+    const cfg = node.config as unknown as SendButtonsNodeConfig;
+    return matchOptionByPositionOrTitle(cfg.buttons ?? [], trimmed);
+  }
+  if (node.node_type === "send_list") {
+    const cfg = node.config as unknown as SendListNodeConfig;
+    const options = (cfg.sections ?? []).flatMap((section) => section.rows ?? []);
+    return matchOptionByPositionOrTitle(options, trimmed);
+  }
+  return null;
+}
+
+function matchOptionByPositionOrTitle(
+  options: Array<{ title: string; next_node_key: string }>,
+  trimmed: string,
+): string | null {
+  const asNumber = Number(trimmed);
+  if (Number.isInteger(asNumber) && asNumber >= 1 && asNumber <= options.length) {
+    return options[asNumber - 1].next_node_key;
+  }
+  const normalized = trimmed.toLowerCase();
+  const hit = options.find((o) => o.title.trim().toLowerCase() === normalized);
+  return hit?.next_node_key ?? null;
+}
+
+/**
  * Case-insensitive contains/exact match against a list of keywords.
  * Used by the trigger evaluator. Stable enough that the v3 builder
  * UI can preview matches by passing canned strings.
@@ -924,9 +970,12 @@ async function handleReplyForActiveRun(
     return { consumed: true, flow_run_id: run.id, outcome: "no_match" };
   }
 
-  // Two ways a reply can advance:
+  // Three ways a reply can advance:
   //   1. Interactive button/list tap on a send_buttons/send_list node.
-  //   2. Text reply on a collect_input node — capture into vars.
+  //   2. Text reply on a send_buttons/send_list node — providers with
+  //      no real buttons (Baileys) degrade the prompt to a numbered
+  //      text menu, so a typed "1"/"2"/title also counts as a tap.
+  //   3. Text reply on a collect_input node — capture into vars.
   //
   // Everything else falls through to the fallback policy below.
   let matched: string | null = null;
@@ -936,6 +985,12 @@ async function handleReplyForActiveRun(
       currentNode.node_type === "send_list")
   ) {
     matched = matchReplyId(currentNode, message.reply_id);
+  } else if (
+    message.kind === "text" &&
+    (currentNode.node_type === "send_buttons" ||
+      currentNode.node_type === "send_list")
+  ) {
+    matched = matchReplyText(currentNode, message.text);
   } else if (
     message.kind === "text" &&
     currentNode.node_type === "collect_input"

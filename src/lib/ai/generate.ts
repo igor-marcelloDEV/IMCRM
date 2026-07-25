@@ -42,7 +42,7 @@ export async function generateReply(args: GenerateArgs): Promise<GenerateResult>
       result = await generateAnthropic(providerArgs)
       break
     default:
-      throw new AiError(`Unsupported AI provider: ${config.provider}`, {
+      throw new AiError(`Provedor de IA não suportado: ${config.provider}`, {
         code: 'unsupported_provider',
         status: 400,
       })

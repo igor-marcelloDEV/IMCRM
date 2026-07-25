@@ -57,9 +57,25 @@ export interface Account {
   name: string;
   /** auth.users.id of the immutable owner. */
   owner_user_id: string;
+  /**
+   * Which WhatsApp integration is currently live for this account.
+   * One provider active at a time (037_baileys_integration.sql) —
+   * switching providers is a Settings action, not a merge of two
+   * simultaneous connections.
+   */
+  active_whatsapp_provider: WhatsAppProviderType;
   created_at: string;
   updated_at: string;
 }
+
+/**
+ * `meta_cloud_api` — the official Meta WhatsApp Business Cloud API
+ * (`whatsapp_config` table, `src/lib/whatsapp/meta-api.ts`).
+ * `baileys` — unofficial WhatsApp Web protocol via the whatsapp-worker
+ * service (`baileys_connections` table). Added in
+ * 037_baileys_integration.sql.
+ */
+export type WhatsAppProviderType = "meta_cloud_api" | "baileys";
 
 /**
  * Hydrated member row for the Settings → Members tab. Combines
@@ -199,8 +215,14 @@ export interface Notification {
   contact_id?: string;
   /** Who triggered it. Null when an automation/system assigned it. */
   actor_user_id?: string;
+  /** Legacy pre-composed English text — kept for backward compat but
+   *  no longer rendered; the UI builds a localized string from
+   *  contact_name/actor_name via next-intl instead (migration 040). */
   title: string;
   body?: string;
+  /** Display-name snapshots for i18n-safe rendering (migration 040). */
+  contact_name?: string | null;
+  actor_name?: string | null;
   read_at?: string;
   created_at: string;
 }
@@ -228,6 +250,18 @@ export interface Message {
   media_url?: string;
   template_name?: string;
   message_id?: string;
+  /**
+   * Which provider this message was sent/received through. Nullable —
+   * only populated by call sites written after
+   * 037_baileys_integration.sql; older rows (all Meta) leave it unset.
+   */
+  provider?: WhatsAppProviderType;
+  /**
+   * Provider-agnostic counterpart to `message_id` (which historically
+   * only ever held a Meta `wamid`). New call sites set both; reads
+   * are migrating to this column incrementally.
+   */
+  provider_message_key?: string;
   status: MessageStatus;
   created_at: string;
   reply_to_message_id?: string;
@@ -285,6 +319,25 @@ export interface WhatsAppConfig {
   subscribed_apps_at?: string;
   /** Last error from /register; cleared on success. */
   last_registration_error?: string;
+}
+
+export type BaileysConnectionStatus = "disconnected" | "qr_pending" | "connected";
+
+/**
+ * One row per account — tracks the lifecycle of that account's
+ * WhatsApp Web (Baileys) pairing. 037_baileys_integration.sql.
+ */
+export interface BaileysConnection {
+  id: string;
+  account_id: string;
+  status: BaileysConnectionStatus;
+  phone_number?: string;
+  /** Data-URL PNG of the current pairing QR, set while status === 'qr_pending'. */
+  qr_code?: string;
+  connected_at?: string;
+  last_seen_at?: string;
+  created_at: string;
+  updated_at: string;
 }
 
 // Raw Meta status enum. We persist this verbatim from Meta (sync + webhook)
@@ -439,7 +492,14 @@ export type AutomationTriggerType =
   | 'time_based'
   /** Customer tapped a reply button / list row whose id matches; lets
    *  multi-step menus be chained across automations. */
-  | 'interactive_reply';
+  | 'interactive_reply'
+  /** Dispatched by the billing nurture cron (src/app/api/billing/
+   *  nurture-cron/route.ts) for a signed-up account that still hasn't
+   *  subscribed 24h after creation — carries a freshly generated 20%
+   *  coupon in context.vars. */
+  | 'billing_nudge_24h'
+  /** Same cron, 48h mark — offers a 24h free trial instead. */
+  | 'billing_nudge_48h';
 
 export type AutomationStepType =
   | 'send_message'

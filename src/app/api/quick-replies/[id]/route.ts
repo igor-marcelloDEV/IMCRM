@@ -21,12 +21,12 @@ export async function PATCH(
   }
 
   const body = await request.json().catch(() => null)
-  if (!body) return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
+  if (!body) return NextResponse.json({ error: 'JSON inválido' }, { status: 400 })
 
   const update: Record<string, unknown> = {}
   if (typeof body.title === 'string') {
     const title = body.title.trim()
-    if (!title) return NextResponse.json({ error: 'title cannot be empty' }, { status: 400 })
+    if (!title) return NextResponse.json({ error: "O campo 'title' não pode estar vazio" }, { status: 400 })
     update.title = title
   }
 
@@ -35,7 +35,7 @@ export async function PATCH(
   // otherwise a switched row keeps a stale payload the picker mis-routes on.
   if ('kind' in body) {
     if (body.kind !== 'text' && body.kind !== 'interactive') {
-      return NextResponse.json({ error: 'kind must be "text" or "interactive"' }, { status: 400 })
+      return NextResponse.json({ error: 'O campo "kind" deve ser "text" ou "interactive"' }, { status: 400 })
     }
     update.kind = body.kind
     if (body.kind === 'interactive') {
@@ -47,7 +47,7 @@ export async function PATCH(
       const text = typeof body.content_text === 'string' ? body.content_text : ''
       if (!text.trim()) {
         return NextResponse.json(
-          { error: 'content_text is required for text quick replies' },
+          { error: "O campo 'content_text' é obrigatório para respostas rápidas de texto" },
           { status: 400 },
         )
       }

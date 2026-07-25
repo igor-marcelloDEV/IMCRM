@@ -239,6 +239,7 @@ export function FlowEditorProvider({
 }: ProviderProps) {
   const router = useRouter();
   const t = useTranslations("Flows.editorState");
+  const tList = useTranslations("Flows.list");
 
   const [state, setStateRaw] = useState<BuilderState>(() => ({
     name: initialFlow.name,
@@ -346,17 +347,17 @@ export function FlowEditorProvider({
       });
       if (!res.ok) {
         const json = await res.json().catch(() => ({}));
-        throw new Error(json.error ?? `Save failed: ${res.status}`);
+        throw new Error(json.error ?? t("saveFailedStatus", { status: res.status }));
       }
       setDirty(false);
       toast.success(t("saved"));
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Save failed";
+      const msg = err instanceof Error ? err.message : t("saveFailedFallback");
       toast.error(msg);
     } finally {
       setSaving(false);
     }
-  }, [initialFlow.id, state]);
+  }, [initialFlow.id, state, t]);
 
   // ---- Activate / Pause / Archive ----
   const setStatus = useCallback(
@@ -380,7 +381,7 @@ export function FlowEditorProvider({
         });
         if (!res.ok) {
           const json = await res.json().catch(() => ({}));
-          throw new Error(json.error ?? `Status update failed: ${res.status}`);
+          throw new Error(json.error ?? t("statusUpdateFailedStatus", { status: res.status }));
         }
         setStateRaw((s) => ({ ...s, status: next }));
         toast.success(
@@ -391,32 +392,30 @@ export function FlowEditorProvider({
               : t("statusDraft")
         );
       } catch (err) {
-        const msg = err instanceof Error ? err.message : "Status update failed";
+        const msg = err instanceof Error ? err.message : t("statusUpdateFailedFallback");
         toast.error(msg);
       } finally {
         setActivating(false);
       }
     },
-    [canActivate, save, initialFlow.id],
+    [canActivate, save, initialFlow.id, t],
   );
 
   // ---- Delete ----
   const deleteFlow = useCallback(async () => {
-    const yes = window.confirm(
-      `Delete "${state.name}"? Any active runs end immediately. This can't be undone.`,
-    );
+    const yes = window.confirm(tList("deleteConfirm", { name: state.name }));
     if (!yes) return;
     try {
       const res = await fetch(`/api/flows/${initialFlow.id}`, {
         method: "DELETE",
       });
-      if (!res.ok) throw new Error(`Delete failed: ${res.status}`);
+      if (!res.ok) throw new Error(t("deleteFailedStatus", { status: res.status }));
       router.push("/flows");
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Delete failed";
+      const msg = err instanceof Error ? err.message : t("deleteFailedFallback");
       toast.error(msg);
     }
-  }, [initialFlow.id, router, state.name]);
+  }, [initialFlow.id, router, state.name, t, tList]);
 
   // ---- Node mutations ----
   const updateNode = useCallback(

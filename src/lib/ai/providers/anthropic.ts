@@ -74,7 +74,7 @@ export async function generateAnthropic(args: ProviderArgs): Promise<ProviderRes
     .join('')
     .trim()
   if (!text) {
-    throw new AiError('Anthropic returned an empty response.', {
+    throw new AiError('A Anthropic retornou uma resposta vazia.', {
       code: 'empty_response',
     })
   }

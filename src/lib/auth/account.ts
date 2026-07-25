@@ -40,7 +40,7 @@ import { hasMinRole, isAccountRole, type AccountRole } from "./roles";
 
 export class UnauthorizedError extends Error {
   readonly status = 401 as const;
-  constructor(message = "Unauthorized") {
+  constructor(message = "Não autorizado") {
     super(message);
     this.name = "UnauthorizedError";
   }
@@ -48,7 +48,7 @@ export class UnauthorizedError extends Error {
 
 export class ForbiddenError extends Error {
   readonly status = 403 as const;
-  constructor(message = "Forbidden") {
+  constructor(message = "Acesso negado") {
     super(message);
     this.name = "ForbiddenError";
   }
@@ -71,7 +71,7 @@ export function toErrorResponse(err: unknown): NextResponse {
     return NextResponse.json({ error: err.message }, { status: err.status });
   }
   console.error("[toErrorResponse] uncategorized error:", err);
-  return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  return NextResponse.json({ error: "Erro interno do servidor" }, { status: 500 });
 }
 
 // ------------------------------------------------------------
@@ -122,19 +122,19 @@ export async function getCurrentAccount(): Promise<AccountContext> {
 
   if (error) {
     console.error("[getCurrentAccount] profile fetch error:", error);
-    throw new ForbiddenError("Could not load account context");
+    throw new ForbiddenError("Não foi possível carregar o contexto da conta");
   }
   if (!data || !data.account_id || !data.account_role) {
     // Pre-migration profile, or a manual insert that skipped the
     // signup trigger. The user is authenticated but the app has
     // no way to scope their queries — treat as forbidden.
-    throw new ForbiddenError("Profile is not linked to an account");
+    throw new ForbiddenError("Perfil não está vinculado a uma conta");
   }
   if (!isAccountRole(data.account_role)) {
     // The DB enum should make this impossible, but a future
     // migration that broadens the enum without updating TS would
     // hit this — surface it rather than silently widening.
-    throw new ForbiddenError(`Unknown account role: ${data.account_role}`);
+    throw new ForbiddenError(`Função de conta desconhecida: ${data.account_role}`);
   }
 
   // Load the account with a plain point lookup by id rather than an
@@ -155,12 +155,12 @@ export async function getCurrentAccount(): Promise<AccountContext> {
 
   if (accountErr) {
     console.error("[getCurrentAccount] account fetch error:", accountErr);
-    throw new ForbiddenError("Could not load account context");
+    throw new ForbiddenError("Não foi possível carregar o contexto da conta");
   }
   if (!account) {
     // account_id points at no readable account row — orphaned profile
     // or an RLS gap. Same "can't scope this user" outcome as above.
-    throw new ForbiddenError("Profile is not linked to an account");
+    throw new ForbiddenError("Perfil não está vinculado a uma conta");
   }
 
   return {
@@ -183,7 +183,7 @@ export async function requireRole(min: AccountRole): Promise<AccountContext> {
   const ctx = await getCurrentAccount();
   if (!hasMinRole(ctx.role, min)) {
     throw new ForbiddenError(
-      `This action requires the '${min}' role or higher`,
+      `Esta ação requer a função '${min}' ou superior`,
     );
   }
   return ctx;

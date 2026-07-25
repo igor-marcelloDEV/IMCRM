@@ -10,7 +10,6 @@ const h = vi.hoisted(() => ({
   engineSendText: vi.fn(),
   state: {
     conv: null as Record<string, unknown> | null,
-    autoResponders: [] as { id: string }[],
     claim: true as boolean,
     updatePayload: null as Record<string, unknown> | null,
     rpcCalls: [] as { name: string; args: unknown }[],
@@ -24,18 +23,7 @@ vi.mock('./generate', () => ({ generateReply: h.generateReply }))
 vi.mock('@/lib/flows/meta-send', () => ({ engineSendText: h.engineSendText }))
 vi.mock('./admin-client', () => ({
   supabaseAdmin: () => ({
-    from: (table: string) => {
-      if (table === 'automations') {
-        // .select().eq().eq().in().limit() → active auto-responders
-        const chain = {
-          select: () => chain,
-          eq: () => chain,
-          in: () => chain,
-          limit: () =>
-            Promise.resolve({ data: h.state.autoResponders, error: null }),
-        }
-        return chain
-      }
+    from: (_table: string) => {
       // conversations
       return {
         select: () => ({
@@ -64,6 +52,7 @@ const ARGS = {
   conversationId: 'conv-1',
   contactId: 'contact-1',
   configOwnerUserId: 'user-1',
+  automationHandledMessage: false,
 }
 
 function aiConfig(overrides: Partial<AiConfig> = {}): AiConfig {
@@ -87,7 +76,6 @@ beforeEach(() => {
     ai_autoreply_disabled: false,
     ai_reply_count: 0,
   }
-  h.state.autoResponders = []
   h.state.claim = true
   h.state.updatePayload = null
   h.state.rpcCalls = []
@@ -120,9 +108,8 @@ describe('dispatchInboundToAiReply — eligibility gates', () => {
     expect(systemPrompt).toContain('Returns accepted within 30 days.')
   })
 
-  it('stands down when an active message-level automation exists', async () => {
-    h.state.autoResponders = [{ id: 'auto-1' }]
-    await dispatchInboundToAiReply(ARGS)
+  it('stands down when a message-level automation already sent a reply to this inbound', async () => {
+    await dispatchInboundToAiReply({ ...ARGS, automationHandledMessage: true })
     expect(h.generateReply).not.toHaveBeenCalled()
     expect(h.engineSendText).not.toHaveBeenCalled()
   })

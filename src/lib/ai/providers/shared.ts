@@ -39,13 +39,13 @@ export function normalizeUsage(raw: {
 /** Map a fetch rejection (timeout / DNS / offline) to a typed AiError. */
 export function toNetworkError(err: unknown): AiError {
   if (err instanceof DOMException && err.name === 'TimeoutError') {
-    return new AiError('The AI provider took too long to respond.', {
+    return new AiError('O provedor de IA demorou demais para responder.', {
       code: 'timeout',
       status: 504,
     })
   }
   const msg = err instanceof Error ? err.message : String(err)
-  return new AiError(`Could not reach the AI provider: ${msg}`, {
+  return new AiError(`Não foi possível conectar ao provedor de IA: ${msg}`, {
     code: 'network_error',
     status: 502,
   })
@@ -77,10 +77,10 @@ export async function providerHttpError(
         : 'provider_error'
   const base =
     code === 'invalid_key'
-      ? `${provider} rejected the API key`
+      ? `${provider} rejeitou a chave de API`
       : code === 'rate_limited'
-        ? `${provider} rate limit reached`
-        : `${provider} API error (${status})`
+        ? `Limite de requisições da ${provider} atingido`
+        : `Erro da API ${provider} (${status})`
 
   return new AiError(detail ? `${base}: ${detail}` : base, {
     code,

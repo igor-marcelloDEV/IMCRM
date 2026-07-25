@@ -26,7 +26,7 @@ export async function GET(
 ) {
   const { id } = await params
   const user = await requireUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!user) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 })
 
   const admin = supabaseAdmin()
   const { data: automation, error } = await admin
@@ -37,7 +37,7 @@ export async function GET(
     .maybeSingle()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  if (!automation) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  if (!automation) return NextResponse.json({ error: 'Não encontrado' }, { status: 404 })
 
   const steps = await loadStepsTree(id)
   return NextResponse.json({ automation, steps })
@@ -59,10 +59,10 @@ export async function PATCH(
   }
 
   const user = await requireUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!user) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 })
 
   const body = await request.json().catch(() => null)
-  if (!body) return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
+  if (!body) return NextResponse.json({ error: 'JSON inválido' }, { status: 400 })
 
   const admin = supabaseAdmin()
 
@@ -74,7 +74,7 @@ export async function PATCH(
     .eq('id', id)
     .maybeSingle()
   if (!existing || existing.user_id !== user.id) {
-    return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    return NextResponse.json({ error: 'Não encontrado' }, { status: 404 })
   }
 
   const update: Record<string, unknown> = {}
@@ -107,7 +107,7 @@ export async function PATCH(
     if (issues.length > 0) {
       return NextResponse.json(
         {
-          error: 'Cannot keep automation active with invalid configuration',
+          error: 'Não é possível manter a automação ativa com uma configuração inválida',
           issues,
         },
         { status: 400 },
@@ -146,7 +146,7 @@ export async function DELETE(
   }
 
   const user = await requireUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!user) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 })
 
   const { error } = await supabaseAdmin()
     .from('automations')

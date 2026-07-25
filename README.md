@@ -1,8 +1,7 @@
-# wacrm — CRM Template for WhatsApp
+# IMCRM — CRM para WhatsApp
 
-> Self-hostable CRM template for WhatsApp® — shared inbox, contacts,
-> sales pipelines, broadcasts, and no-code automations. Fork it, brand
-> it, host it.
+> CRM auto-hospedado para WhatsApp® — caixa de entrada compartilhada,
+> contatos, funis de vendas, disparos em massa e automações no-code.
 
 <p align="center">
   <a href="https://www.hostinger.com/web-apps-hosting">
@@ -11,15 +10,10 @@
 </p>
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-violet.svg)](./LICENSE)
-[![CI](https://github.com/ArnasDon/wacrm/actions/workflows/ci.yml/badge.svg)](https://github.com/ArnasDon/wacrm/actions/workflows/ci.yml)
+[![CI](https://github.com/igor-marcelloDEV/IMCRM/actions/workflows/ci.yml/badge.svg)](https://github.com/igor-marcelloDEV/IMCRM/actions/workflows/ci.yml)
 [![Next.js 16](https://img.shields.io/badge/Next.js-16-black?logo=nextdotjs)](https://nextjs.org)
 [![Supabase](https://img.shields.io/badge/Supabase-Postgres%20%2B%20Auth-3ecf8e?logo=supabase)](https://supabase.com)
-[![Stars](https://img.shields.io/github/stars/ArnasDon/wacrm?style=social)](https://github.com/ArnasDon/wacrm/stargazers)
-
-The marketing site and self-host docs live in a separate repo:
-[ArnasDon/wacrm-site](https://github.com/ArnasDon/wacrm-site)
-([wacrm.tech](https://wacrm.tech)). This repo is the product —
-clone or fork it to run your own CRM.
+[![Stars](https://img.shields.io/github/stars/igor-marcelloDEV/IMCRM?style=social)](https://github.com/igor-marcelloDEV/IMCRM/stargazers)
 
 ## What you get out of the box
 
@@ -79,9 +73,8 @@ in an afternoon and make yours.
 ## Quick start
 
 ```bash
-# Fork on GitHub first: https://github.com/ArnasDon/wacrm → Fork
-git clone https://github.com/<your-username>/wacrm.git
-cd wacrm
+git clone https://github.com/igor-marcelloDEV/IMCRM.git
+cd IMCRM
 npm install
 cp .env.local.example .env.local   # fill in Supabase + Meta creds
 npm run dev
@@ -103,7 +96,7 @@ Open <http://localhost:3000>. You'll be redirected to `/login` (or
   </a>
 </p>
 
-**wacrm is built to run on [Hostinger](https://www.hostinger.com/web-apps-hosting).**
+**IMCRM is built to run on [Hostinger](https://www.hostinger.com/web-apps-hosting).**
 It's the path we test, document, and recommend — and the fastest way
 to get a production-grade CRM live without owning a VPS or a
 Kubernetes cluster.
@@ -132,7 +125,7 @@ Kubernetes cluster.
 Full walkthrough with screenshots:
 **[wacrm.tech/docs/deployment-hostinger](https://wacrm.tech/docs/deployment-hostinger)**.
 
-> _Note: wacrm is MIT-licensed and runs anywhere Node.js does
+> _Note: IMCRM is MIT-licensed and runs anywhere Node.js does
 > (Vercel, Railway, your own VPS). Hostinger is recommended, not
 > required._
 

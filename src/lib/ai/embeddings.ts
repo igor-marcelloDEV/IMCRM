@@ -71,7 +71,7 @@ export async function embedTexts(
     const data = (await res.json().catch(() => null)) as EmbeddingResponse | null
     const rows = data?.data
     if (!rows || rows.length !== batch.length) {
-      throw new AiError('Embeddings response was malformed.', {
+      throw new AiError('A resposta de embeddings estava malformada.', {
         code: 'embeddings_malformed',
       })
     }
@@ -81,14 +81,14 @@ export async function embedTexts(
     // a missing one to 0 would silently misalign chunks with their
     // vectors (chunk N gets chunk M's embedding), so fail loud instead.
     if (rows.some((r) => typeof r.index !== 'number')) {
-      throw new AiError('Embeddings response was missing result indices.', {
+      throw new AiError('A resposta de embeddings não trouxe os índices dos resultados.', {
         code: 'embeddings_malformed',
       })
     }
     const ordered = [...rows].sort((a, b) => a.index! - b.index!)
     for (const r of ordered) {
       if (!Array.isArray(r.embedding)) {
-        throw new AiError('Embeddings response missing a vector.', {
+        throw new AiError('A resposta de embeddings não trouxe um vetor.', {
           code: 'embeddings_malformed',
         })
       }

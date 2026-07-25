@@ -10,8 +10,10 @@
  * nothing is known.
  */
 
-/** App-wide fallback when no account/deal currency is available. */
-export const DEFAULT_CURRENCY = "USD";
+/** App-wide fallback when no account/deal currency is available.
+ *  BRL — IMCRM's billing (see src/lib/billing/) and primary market
+ *  are both Brazilian; new accounts default here too (migration 043). */
+export const DEFAULT_CURRENCY = "BRL";
 
 export interface CurrencyOption {
   /** ISO-4217 code, e.g. "USD". Stored verbatim in the DB. */

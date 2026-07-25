@@ -14,7 +14,7 @@ export async function GET() {
   const {
     data: { user },
   } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!user) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 })
 
   const { data, error } = await supabase
     .from('automations')
@@ -38,7 +38,7 @@ export async function POST(request: Request) {
   const {
     data: { user },
   } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!user) return NextResponse.json({ error: 'Não autorizado' }, { status: 401 })
 
   // Resolve the caller's account_id — `automations.account_id` is NOT
   // NULL post-017, so an INSERT without it trips the not-null constraint
@@ -51,13 +51,13 @@ export async function POST(request: Request) {
   const accountId = profile?.account_id as string | undefined
   if (!accountId) {
     return NextResponse.json(
-      { error: 'Your profile is not linked to an account.' },
+      { error: 'Seu perfil não está vinculado a uma conta.' },
       { status: 403 },
     )
   }
 
   const body = await request.json().catch(() => null)
-  if (!body) return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
+  if (!body) return NextResponse.json({ error: 'JSON inválido' }, { status: 400 })
 
   const { name, description, trigger_type, trigger_config, is_active, steps, template } = body
 
@@ -80,7 +80,7 @@ export async function POST(request: Request) {
 
   if (!effectiveName || !effectiveTriggerType) {
     return NextResponse.json(
-      { error: 'name and trigger_type are required' },
+      { error: "Os campos 'name' e 'trigger_type' são obrigatórios" },
       { status: 400 },
     )
   }
@@ -98,7 +98,7 @@ export async function POST(request: Request) {
     ]
     if (issues.length > 0) {
       return NextResponse.json(
-        { error: 'Cannot activate automation with invalid configuration', issues },
+        { error: 'Não é possível ativar a automação com uma configuração inválida', issues },
         { status: 400 },
       )
     }
@@ -121,7 +121,7 @@ export async function POST(request: Request) {
 
   if (insertErr || !automation) {
     return NextResponse.json(
-      { error: insertErr?.message ?? 'insert failed' },
+      { error: insertErr?.message ?? 'falha ao inserir' },
       { status: 500 },
     )
   }

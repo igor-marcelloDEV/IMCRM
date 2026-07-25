@@ -36,6 +36,10 @@ function makeSupabaseMock() {
       switch (table) {
         case 'profiles':
           return { data: { account_id: 'acct-1' }, error: null }
+        case 'accounts':
+          // getProviderForAccount reads this to pick Meta vs. Baileys —
+          // every test here exercises the (default) Meta path.
+          return { data: { active_whatsapp_provider: 'meta_cloud_api' }, error: null }
         case 'contacts':
           return { data: contactRow, error: null }
         case 'conversations':
@@ -244,7 +248,7 @@ describe('POST /api/whatsapp/send — contact_id template path', () => {
     const json = await res.json()
 
     expect(res.status).toBe(404)
-    expect(json.error).toMatch(/contact not found/i)
+    expect(json.error).toMatch(/contato não encontrado/i)
     expect(sendTemplateMessage).not.toHaveBeenCalled()
   })
 

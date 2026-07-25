@@ -46,6 +46,7 @@
 // ============================================================
 
 import type { ComponentProps, ReactNode } from "react";
+import { useTranslations } from "next-intl";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -74,9 +75,10 @@ export function GatedButton({
   children,
   ...rest
 }: GatedButtonProps) {
+  const t = useTranslations("Common");
   const effectivelyDisabled = disabled || !canAct;
   const tooltip = !canAct && gateReason
-    ? `Read-only — your role can't ${gateReason}`
+    ? t("readOnlyTooltip", { reason: gateReason })
     : title;
 
   return (

@@ -77,7 +77,10 @@ export function IssueLine({
 }: {
   issue: ValidationIssue;
   onJump?: (key: string) => void;
-  t?: ReturnType<typeof useTranslations>;
+  /** `useTranslations("Flows.validation")` from the caller — required
+   *  now that the issue body itself is rendered via messageKey
+   *  (previously `issue.message`, hardcoded English; see validate.ts). */
+  t: ReturnType<typeof useTranslations>;
 }) {
   const tone =
     issue.severity === "error" ? "text-red-300" : "text-amber-300";
@@ -92,7 +95,7 @@ export function IssueLine({
             {issue.node_key}
           </code>
         )}
-        {issue.message}
+        {t(`messages.${issue.messageKey}`, issue.params)}
       </span>
     </>
   );
@@ -109,7 +112,7 @@ export function IssueLine({
           "flex w-full items-start gap-2 rounded-md px-2 py-1 text-left text-xs transition-colors hover:bg-muted/60",
           tone,
         )}
-        aria-label={t ? t("jumpToNode", { key: issue.node_key! }) : `Jump to node ${issue.node_key}`}
+        aria-label={t("jumpToNode", { key: issue.node_key! })}
       >
         {body}
       </button>

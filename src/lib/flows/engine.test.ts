@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   matchReplyId,
+  matchReplyText,
   matchesKeywordTrigger,
   isAutoAdvancing,
   isSuspending,
@@ -92,6 +93,77 @@ describe("matchReplyId", () => {
           config: { text: "x", sections: [{ rows: [] }] },
         },
         "x",
+      ),
+    ).toBeNull();
+  });
+});
+
+describe("matchReplyText", () => {
+  it("matches a send_buttons node by 1-indexed position", () => {
+    const node = {
+      node_type: "send_buttons",
+      config: {
+        text: "Pick one",
+        buttons: [
+          { reply_id: "yes", title: "Yes", next_node_key: "confirmed" },
+          { reply_id: "no", title: "No", next_node_key: "declined" },
+        ],
+      },
+    };
+    expect(matchReplyText(node, "1")).toBe("confirmed");
+    expect(matchReplyText(node, "2")).toBe("declined");
+    expect(matchReplyText(node, "3")).toBeNull();
+    expect(matchReplyText(node, "0")).toBeNull();
+  });
+
+  it("matches a send_buttons node by title text, case-insensitively and trimmed", () => {
+    const node = {
+      node_type: "send_buttons",
+      config: {
+        text: "Pick one",
+        buttons: [{ reply_id: "yes", title: "Site novo", next_node_key: "to_site" }],
+      },
+    };
+    expect(matchReplyText(node, "  site novo ")).toBe("to_site");
+    expect(matchReplyText(node, "SITE NOVO")).toBe("to_site");
+    expect(matchReplyText(node, "outro assunto")).toBeNull();
+  });
+
+  it("numbers send_list rows continuously across sections, matching renderInteractiveAsText", () => {
+    const node = {
+      node_type: "send_list",
+      config: {
+        text: "Pick an order",
+        button_label: "View",
+        sections: [
+          { title: "Recent", rows: [{ reply_id: "o1", title: "Order 1", next_node_key: "ord_1" }] },
+          {
+            title: "Older",
+            rows: [
+              { reply_id: "o2", title: "Order 2", next_node_key: "ord_2" },
+              { reply_id: "o3", title: "Order 3", next_node_key: "ord_3" },
+            ],
+          },
+        ],
+      },
+    };
+    expect(matchReplyText(node, "1")).toBe("ord_1");
+    expect(matchReplyText(node, "2")).toBe("ord_2");
+    expect(matchReplyText(node, "3")).toBe("ord_3");
+    expect(matchReplyText(node, "Order 3")).toBe("ord_3");
+    expect(matchReplyText(node, "4")).toBeNull();
+  });
+
+  it("returns null for nodes without options or blank input", () => {
+    expect(matchReplyId({ node_type: "start", config: { next_node_key: "x" } }, "y")).toBeNull();
+    expect(matchReplyText({ node_type: "send_message", config: {} }, "1")).toBeNull();
+    expect(
+      matchReplyText(
+        {
+          node_type: "send_buttons",
+          config: { text: "x", buttons: [{ reply_id: "a", title: "A", next_node_key: "to_a" }] },
+        },
+        "   ",
       ),
     ).toBeNull();
   });

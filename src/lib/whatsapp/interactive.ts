@@ -237,3 +237,41 @@ export function interactivePayloadPreviewText(
   if (body) return body
   return payload.kind === 'buttons' ? '[buttons]' : '[list]'
 }
+
+/**
+ * Render an interactive payload as a plain-text numbered menu — the
+ * fallback used by providers that can't send real tappable buttons/
+ * lists (currently only `BaileysWorkerProvider`; see
+ * src/lib/whatsapp/baileys-provider.ts). Numbering is 1-indexed and
+ * continuous across list sections, matching `matchReplyText`'s
+ * position-based matching in the Flows engine so "the customer typed
+ * 2" and "the customer tapped the 2nd option" resolve to the same
+ * `reply_id`.
+ */
+export function renderInteractiveAsText(payload: InteractiveMessagePayload): string {
+  const lines: string[] = []
+  if (payload.header) lines.push(`*${payload.header}*`)
+  lines.push(payload.body)
+  lines.push('')
+
+  if (payload.kind === 'buttons') {
+    payload.buttons.forEach((b, i) => lines.push(`${i + 1}. ${b.title}`))
+  } else {
+    let n = 0
+    for (const section of payload.sections) {
+      if (section.title) lines.push(`*${section.title}*`)
+      for (const row of section.rows) {
+        n += 1
+        lines.push(`${n}. ${row.title}${row.description ? ` — ${row.description}` : ''}`)
+      }
+    }
+  }
+
+  if (payload.footer) {
+    lines.push('')
+    lines.push(`_${payload.footer}_`)
+  }
+  lines.push('')
+  lines.push('Responda com o número da opção.')
+  return lines.join('\n')
+}

@@ -1,0 +1,31 @@
+{
+  "name": "imcrm-whatsapp-worker",
+  "version": "0.1.0",
+  "description": "Always-on Baileys (unofficial WhatsApp Web protocol) worker for IMCRM's second WhatsApp connection option. Not deployable to Vercel — needs a persistent process, see README.md.",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx watch src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@hapi/boom": "^10.0.1",
+    "@supabase/supabase-js": "^2.107.0",
+    "@whiskeysockets/baileys": "^7.0.0-rc13",
+    "dotenv": "^16.4.7",
+    "pino": "^9.6.0",
+    "qrcode": "^1.5.4"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.0",
+    "@types/qrcode": "^1.5.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.0"
+  }
+}

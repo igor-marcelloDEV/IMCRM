@@ -28,7 +28,7 @@ export async function POST(request: Request) {
     } = await supabase.auth.getUser();
 
     if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      return NextResponse.json({ error: 'Não autorizado' }, { status: 401 });
     }
 
     const limit = checkRateLimit(`react:${user.id}`, RATE_LIMITS.react);
@@ -46,7 +46,7 @@ export async function POST(request: Request) {
     const accountId = profile?.account_id as string | undefined;
     if (!accountId) {
       return NextResponse.json(
-        { error: 'Your profile is not linked to an account.' },
+        { error: 'Seu perfil não está vinculado a uma conta.' },
         { status: 403 },
       );
     }
@@ -59,7 +59,7 @@ export async function POST(request: Request) {
 
     if (!message_id || typeof emoji !== 'string') {
       return NextResponse.json(
-        { error: 'message_id and emoji are required' },
+        { error: "Os campos 'message_id' e 'emoji' são obrigatórios" },
         { status: 400 },
       );
     }
@@ -72,14 +72,14 @@ export async function POST(request: Request) {
       .maybeSingle();
 
     if (msgError || !targetMessage) {
-      return NextResponse.json({ error: 'Message not found' }, { status: 404 });
+      return NextResponse.json({ error: 'Mensagem não encontrada' }, { status: 404 });
     }
 
     if (!targetMessage.message_id) {
       // No Meta ID yet — usually a sending/failed agent message. We can't
       // tell Meta to react to a message it never received.
       return NextResponse.json(
-        { error: 'Cannot react to a message that has not been sent to WhatsApp' },
+        { error: 'Não é possível reagir a uma mensagem que ainda não foi enviada ao WhatsApp' },
         { status: 400 },
       );
     }
@@ -93,7 +93,7 @@ export async function POST(request: Request) {
 
     if (convError || !conversation) {
       return NextResponse.json(
-        { error: 'Conversation not found' },
+        { error: 'Conversa não encontrada' },
         { status: 404 },
       );
     }
@@ -103,7 +103,7 @@ export async function POST(request: Request) {
       : conversation.contact;
     if (!contact?.phone) {
       return NextResponse.json(
-        { error: 'Contact phone number not found' },
+        { error: 'Número de telefone do contato não encontrado' },
         { status: 400 },
       );
     }
@@ -117,7 +117,7 @@ export async function POST(request: Request) {
 
     if (configError || !config) {
       return NextResponse.json(
-        { error: 'WhatsApp not configured.' },
+        { error: 'O WhatsApp® não está configurado.' },
         { status: 400 },
       );
     }
@@ -135,10 +135,10 @@ export async function POST(request: Request) {
       });
     } catch (err) {
       const message =
-        err instanceof Error ? err.message : 'Unknown Meta API error';
+        err instanceof Error ? err.message : 'Erro desconhecido da API da Meta';
       console.error('[whatsapp/react] Meta send failed:', message);
       return NextResponse.json(
-        { error: `Meta API error: ${message}` },
+        { error: `Erro da API da Meta: ${message}` },
         { status: 502 },
       );
     }
@@ -155,7 +155,7 @@ export async function POST(request: Request) {
       if (delError) {
         console.error('[whatsapp/react] DB delete failed:', delError.message);
         return NextResponse.json(
-          { error: 'Reaction sent to Meta but DB delete failed' },
+          { error: 'A reação foi enviada à Meta, mas a exclusão no banco de dados falhou' },
           { status: 500 },
         );
       }
@@ -176,7 +176,7 @@ export async function POST(request: Request) {
       if (upsertError) {
         console.error('[whatsapp/react] DB upsert failed:', upsertError.message);
         return NextResponse.json(
-          { error: 'Reaction sent to Meta but DB upsert failed' },
+          { error: 'A reação foi enviada à Meta, mas o registro no banco de dados falhou' },
           { status: 500 },
         );
       }
@@ -186,7 +186,7 @@ export async function POST(request: Request) {
   } catch (error) {
     console.error('Error in WhatsApp react POST:', error);
     return NextResponse.json(
-      { error: 'Failed to react to message' },
+      { error: 'Falha ao reagir à mensagem' },
       { status: 500 },
     );
   }

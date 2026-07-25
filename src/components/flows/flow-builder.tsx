@@ -272,6 +272,7 @@ function TriggerPanel({
   triggerIssues: ValidationIssue[];
   t: ReturnType<typeof useTranslations>;
 }) {
+  const tValidation = useTranslations("Flows.validation");
   return (
     <section className="border-border bg-card rounded-lg border p-4">
       <h2 className="text-foreground mb-3 text-sm font-semibold">{t('triggerTitle')}</h2>
@@ -332,7 +333,7 @@ function TriggerPanel({
       {triggerIssues.length > 0 && (
         <div className="mt-3 flex flex-col gap-1">
           {triggerIssues.map((i, ix) => (
-            <IssueLine key={ix} issue={i} />
+            <IssueLine key={ix} issue={i} t={tValidation} />
           ))}
         </div>
       )}
@@ -406,6 +407,7 @@ function NodeCard({
   const c = nodeColors(node.node_type);
   const hasError = issues.some((i) => i.severity === 'error');
   const tSummary = useTranslations('Flows.summary');
+  const tValidation = useTranslations('Flows.validation');
   const preview = summarizeNode(node, tSummary);
   return (
     <div
@@ -496,7 +498,7 @@ function NodeCard({
           {issues.length > 0 && (
             <div className="mt-3 flex flex-col gap-1 rounded-md bg-red-500/5 p-2">
               {issues.map((i, ix) => (
-                <IssueLine key={ix} issue={i} />
+                <IssueLine key={ix} issue={i} t={tValidation} />
               ))}
             </div>
           )}

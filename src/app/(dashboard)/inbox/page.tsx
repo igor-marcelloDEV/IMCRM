@@ -19,7 +19,7 @@ import { cn } from "@/lib/utils";
 
 // Remembers the agent's show/hide choice for the desktop contact panel
 // across reloads and sessions (device-scoped, like the theme prefs).
-const CONTACT_PANEL_STORAGE_KEY = "wacrm:inbox:contact-panel-open";
+const CONTACT_PANEL_STORAGE_KEY = "imcrm:inbox:contact-panel-open";
 
 // `useSearchParams` (the `?c=<id>` deep link below) requires a Suspense
 // boundary or the production build bails to CSR and errors out. Thin
@@ -197,6 +197,26 @@ function InboxPageInner() {
       const accountId = profile?.account_id as string | undefined;
       if (!accountId) {
         setWhatsappConnected(false);
+        return;
+      }
+
+      // Which provider is actually active determines which table's
+      // status matters — checking whatsapp_config unconditionally
+      // showed a false "not connected" banner for accounts that
+      // switched to WhatsApp Web (Baileys), which has no row there.
+      const { data: account } = await supabase
+        .from("accounts")
+        .select("active_whatsapp_provider")
+        .eq("id", accountId)
+        .maybeSingle();
+
+      if (account?.active_whatsapp_provider === "baileys") {
+        const { data: connection } = await supabase
+          .from("baileys_connections")
+          .select("status")
+          .eq("account_id", accountId)
+          .maybeSingle();
+        setWhatsappConnected(connection?.status === "connected");
         return;
       }
 
