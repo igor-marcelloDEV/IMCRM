@@ -44,6 +44,7 @@
     "flows": "Fluxos",
     "aiAgents": "Agentes de IA",
     "billing": "Cobrança",
+    "admin": "Administração",
     "settings": "Configurações",
     "beta": "Beta",
     "unreadConversations": "{count} {count, plural, =1 {conversa não lida} other {conversas não lidas}}",
@@ -1701,6 +1702,56 @@
       "overdue": "Atrasado",
       "refunded": "Reembolsado",
       "failed": "Falhou"
+    }
+  },
+  "Admin": {
+    "overview": {
+      "title": "Visão geral da plataforma",
+      "description": "Todas as contas do IMCRM e o status de assinatura de cada uma — visível apenas para o operador da plataforma.",
+      "totalAccounts": "Total de contas",
+      "activePayingAccounts": "Contas pagantes ativas",
+      "mrr": "MRR (estimado)",
+      "accountsTitle": "Contas",
+      "accountsDescription": "Todas as contas de clientes e a assinatura atual de cada uma.",
+      "operatorBadge": "Você (operador)",
+      "colAccount": "Conta",
+      "colOwner": "Responsável",
+      "colStatus": "Status",
+      "colPlan": "Plano",
+      "colRenews": "Renova em",
+      "colCreated": "Criada em",
+      "colAmount": "Valor",
+      "colMethod": "Método",
+      "colDate": "Data",
+      "paymentsTitle": "Pagamentos recentes",
+      "paymentsDescription": "Os últimos 10 pagamentos recebidos em todas as contas.",
+      "noPayments": "Nenhum pagamento ainda.",
+      "status": {
+        "none": "Sem assinatura",
+        "trialing": "Teste",
+        "active": "Ativa",
+        "pending": "Pagamento pendente",
+        "past_due": "Pagamento atrasado",
+        "canceled": "Cancelada",
+        "expired": "Expirada"
+      },
+      "plan": {
+        "weekly": "Semanal",
+        "monthly": "Mensal",
+        "annual": "Anual"
+      },
+      "method": {
+        "pix": "PIX",
+        "boleto": "Boleto",
+        "credit_card": "Cartão de crédito"
+      },
+      "paymentStatus": {
+        "pending": "Pendente",
+        "confirmed": "Confirmado",
+        "overdue": "Atrasado",
+        "refunded": "Reembolsado",
+        "failed": "Falhou"
+      }
     }
   },
   "Settings": {

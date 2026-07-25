@@ -14,6 +14,7 @@ import {
   Crown,
   GitBranch,
   LayoutDashboard,
+  LayoutGrid,
   LogOut,
   MessageSquare,
   Radio,
@@ -103,6 +104,13 @@ const navItems: NavItem[] = [
 ];
 
 const billingNavItem: NavItem = { href: "/billing", labelKey: "billing", icon: CreditCard };
+const adminNavItem: NavItem = { href: "/admin", labelKey: "admin", icon: LayoutGrid };
+
+// Purely cosmetic — this only decides whether the link is rendered.
+// The real gate is server-side in /api/admin/overview, which
+// re-checks PLATFORM_OPERATOR_ACCOUNT_ID independently, so exposing
+// this id to the client bundle carries no access risk.
+const OPERATOR_ACCOUNT_ID = process.env.NEXT_PUBLIC_PLATFORM_OPERATOR_ACCOUNT_ID;
 
 const bottomNavItems = [
   { href: "/settings", labelKey: "settings", icon: Settings },
@@ -126,10 +134,15 @@ import { useTranslations } from "next-intl";
 export function Sidebar({ open = false, onClose, billingRestricted = false }: SidebarProps) {
   const t = useTranslations("Sidebar");
   const pathname = usePathname();
-  const { profile, profileLoading, account, accountRole, signOut } = useAuth();
+  const { profile, profileLoading, account, accountId, accountRole, signOut } = useAuth();
   const totalUnread = useTotalUnread();
   const unreadNotifications = useUnreadNotifications();
-  const visibleNavItems = billingRestricted ? [billingNavItem] : [...navItems, billingNavItem];
+  const isOperator = !!OPERATOR_ACCOUNT_ID && accountId === OPERATOR_ACCOUNT_ID;
+  const visibleNavItems = billingRestricted
+    ? [billingNavItem]
+    : isOperator
+      ? [...navItems, billingNavItem, adminNavItem]
+      : [...navItems, billingNavItem];
   const visibleBottomNavItems = billingRestricted ? [] : bottomNavItems;
   // Only surface the account-name strip when it actually carries
   // information. A solo user's personal account is named after them

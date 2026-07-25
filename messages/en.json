@@ -44,6 +44,7 @@
     "flows": "Flows",
     "aiAgents": "AI Agents",
     "billing": "Billing",
+    "admin": "Admin",
     "settings": "Settings",
     "beta": "Beta",
     "unreadConversations": "{count} unread {count, plural, =1 {conversation} other {conversations}}",
@@ -1701,6 +1702,56 @@
       "overdue": "Overdue",
       "refunded": "Refunded",
       "failed": "Failed"
+    }
+  },
+  "Admin": {
+    "overview": {
+      "title": "Platform overview",
+      "description": "All accounts on IMCRM and their subscription status — visible only to the platform operator.",
+      "totalAccounts": "Total accounts",
+      "activePayingAccounts": "Active paying accounts",
+      "mrr": "MRR (est.)",
+      "accountsTitle": "Accounts",
+      "accountsDescription": "Every tenant account and its current subscription.",
+      "operatorBadge": "You (operator)",
+      "colAccount": "Account",
+      "colOwner": "Owner",
+      "colStatus": "Status",
+      "colPlan": "Plan",
+      "colRenews": "Renews",
+      "colCreated": "Created",
+      "colAmount": "Amount",
+      "colMethod": "Method",
+      "colDate": "Date",
+      "paymentsTitle": "Recent payments",
+      "paymentsDescription": "The last 10 payments received across all accounts.",
+      "noPayments": "No payments yet.",
+      "status": {
+        "none": "No subscription",
+        "trialing": "Trial",
+        "active": "Active",
+        "pending": "Pending payment",
+        "past_due": "Payment overdue",
+        "canceled": "Canceled",
+        "expired": "Expired"
+      },
+      "plan": {
+        "weekly": "Weekly",
+        "monthly": "Monthly",
+        "annual": "Annual"
+      },
+      "method": {
+        "pix": "PIX",
+        "boleto": "Boleto",
+        "credit_card": "Credit card"
+      },
+      "paymentStatus": {
+        "pending": "Pending",
+        "confirmed": "Confirmed",
+        "overdue": "Overdue",
+        "refunded": "Refunded",
+        "failed": "Failed"
+      }
     }
   },
   "Settings": {
