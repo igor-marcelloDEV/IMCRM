@@ -29,9 +29,36 @@
     "createAccount": "Criar conta",
     "heroTitle": "Sua central de vendas no WhatsApp, em um só lugar.",
     "heroSubtitle": "Inbox compartilhada, funil de vendas visual e automações — tudo em tempo real.",
-    "heroBullet1": "Inbox compartilhada com toda a sua equipe",
-    "heroBullet2": "Funil de vendas visual, arraste e solte",
-    "heroBullet3": "Automações que capturam leads sozinhas"
+    "heroIntro": "O IMCRM centraliza as conversas do seu WhatsApp em uma única caixa de entrada, guia seus leads por um funil visual e responde automaticamente enquanto você dorme — tudo em um só painel, sem planilha e sem ficar trocando de aplicativo.",
+    "slides": {
+      "inbox": {
+        "title": "Caixa de entrada compartilhada",
+        "description": "Toda a equipe responde pelo mesmo número de WhatsApp, sem perder histórico e sem atendimento duplicado."
+      },
+      "pipelines": {
+        "title": "Funil de vendas visual",
+        "description": "Arraste os negócios entre as etapas e veja exatamente quanto está prestes a fechar."
+      },
+      "flows": {
+        "title": "Fluxos de conversa automáticos",
+        "description": "Monte um menu com botões que tira dúvidas e transfere pra um humano só quando precisa."
+      },
+      "automations": {
+        "title": "Automações prontas para usar",
+        "description": "Marque leads, crie negócios e mande lembretes automaticamente a cada nova mensagem."
+      },
+      "dashboard": {
+        "title": "Painel com métricas em tempo real",
+        "description": "Acompanhe conversas ativas, tempo de resposta e valor em aberto sem pedir relatório pra ninguém."
+      }
+    },
+    "carousel": {
+      "prev": "Screenshot anterior",
+      "next": "Próximo screenshot",
+      "goToSlide": "Ir para o screenshot {n}",
+      "enlarge": "Ampliar screenshot",
+      "close": "Fechar"
+    }
   },
   "Sidebar": {
     "dashboard": "Painel",

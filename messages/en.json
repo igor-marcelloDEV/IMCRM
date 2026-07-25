@@ -29,9 +29,36 @@
     "createAccount": "Create account",
     "heroTitle": "Your WhatsApp sales hub, in one place.",
     "heroSubtitle": "Shared inbox, visual sales pipeline, and automations — all in real time.",
-    "heroBullet1": "Shared inbox for your whole team",
-    "heroBullet2": "Drag-and-drop visual sales pipeline",
-    "heroBullet3": "Automations that capture leads for you"
+    "heroIntro": "IMCRM brings every WhatsApp conversation into one inbox, moves leads through a visual pipeline, and replies automatically while you sleep — all from a single dashboard, no spreadsheets or app-switching required.",
+    "slides": {
+      "inbox": {
+        "title": "Shared team inbox",
+        "description": "Your whole team replies from the same WhatsApp number — no lost history, no duplicate replies."
+      },
+      "pipelines": {
+        "title": "Visual sales pipeline",
+        "description": "Drag deals between stages and see exactly how much is about to close."
+      },
+      "flows": {
+        "title": "Automated conversation flows",
+        "description": "Build a button-driven menu that answers questions and hands off to a human only when needed."
+      },
+      "automations": {
+        "title": "Ready-made automations",
+        "description": "Tag leads, create deals, and send follow-up reminders automatically on every new message."
+      },
+      "dashboard": {
+        "title": "Real-time metrics dashboard",
+        "description": "Track active conversations, response time, and open pipeline value without asking anyone for a report."
+      }
+    },
+    "carousel": {
+      "prev": "Previous screenshot",
+      "next": "Next screenshot",
+      "goToSlide": "Go to screenshot {n}",
+      "enlarge": "Enlarge screenshot",
+      "close": "Close"
+    }
   },
   "Sidebar": {
     "dashboard": "Dashboard",
