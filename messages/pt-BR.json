@@ -2152,7 +2152,18 @@
       "webhookUrlCopied": "URL copiada",
       "webhookTokenCopied": "Token copiado",
       "copyFailed": "Não foi possível copiar",
-      "nfeComingSoon": "A emissão automática de nota fiscal (NFS-e) chega numa próxima atualização — vai exigir que sua conta Asaas já tenha o cadastro fiscal/municipal configurado."
+      "nfeTitle": "Nota fiscal automática (NFS-e)",
+      "nfeWarning": "Exige o cadastro fiscal/municipal JÁ concluído no seu próprio painel da Asaas (Integrações → Informações Fiscais) — o IMCRM não faz essa parte. A busca abaixo só funciona depois disso.",
+      "currentService": "Cobrando atualmente sob: {service}",
+      "municipalServiceLabel": "Serviço municipal",
+      "pickService": "Escolha um serviço…",
+      "noServicesYet": "Busque pra carregar seus serviços disponíveis",
+      "searchServices": "Buscar serviços municipais",
+      "saveService": "Salvar serviço",
+      "nfeEnabledLabel": "Emitir nota automaticamente no pagamento",
+      "nfeEnabledHint": "Quando um pedido do checkout é confirmado como pago, agenda a NFS-e automaticamente.",
+      "toastServicesFailed": "Não foi possível buscar os serviços municipais.",
+      "toastNoServices": "Nenhum serviço retornado — confira seu cadastro fiscal na Asaas."
     },
     "roles": {
       "admin": "Admin",

@@ -59,17 +59,35 @@ export async function PATCH(request: Request) {
   if (body.asaas_env === "sandbox" || body.asaas_env === "production") {
     update.asaas_env = body.asaas_env;
   }
+  if (typeof body.municipal_service_id === "string" && typeof body.municipal_service_name === "string") {
+    update.municipal_service_id = body.municipal_service_id || null;
+    update.municipal_service_name = body.municipal_service_name || null;
+  }
 
   // First time this tenant saves ANY payment config — mint the
   // webhook token now so it's ready to paste into Asaas immediately,
   // rather than a separate "generate" step.
   const { data: existing } = await supabaseAdmin()
     .from("tenant_payment_configs")
-    .select("webhook_token")
+    .select("webhook_token, municipal_service_id")
     .eq("account_id", ctx.accountId)
     .maybeSingle();
   if (!existing?.webhook_token) {
     update.webhook_token = randomBytes(24).toString("hex");
+  }
+
+  if (typeof body.nfe_enabled === "boolean") {
+    // Never let NFe issuance turn on without a municipal service
+    // picked — the webhook would otherwise call scheduleInvoice()
+    // with nothing to bill under.
+    const hasService = (update.municipal_service_id ?? existing?.municipal_service_id) != null;
+    if (body.nfe_enabled && !hasService) {
+      return NextResponse.json(
+        { error: "Busque e selecione um serviço municipal antes de habilitar a emissão automática." },
+        { status: 400 },
+      );
+    }
+    update.nfe_enabled = body.nfe_enabled;
   }
 
   const { error } = await supabaseAdmin()

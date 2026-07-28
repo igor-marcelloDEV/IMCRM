@@ -35,3 +35,111 @@ export async function getTenantAsaasConfig(
     return null;
   }
 }
+
+// ============================================================
+// Nota Fiscal (NFS-e) — a second, separate Asaas API surface from
+// payments. Deliberately NOT added to src/lib/billing/asaas.ts (the
+// platform's own billing client never touches invoices), so this
+// module carries its own tiny fetch wrapper rather than exporting
+// asaasFetch out of that file for one extra caller.
+//
+// IMCRM does NOT reimplement Asaas's fiscal-registration flow
+// (POST /fiscalInfo — email, Simples Nacional flag, municipal
+// inscription, sometimes a digital certificate upload). That's
+// municipality-specific and the tenant does it once, directly in
+// their own Asaas dashboard. This module only consumes what's
+// already configured there: listing the municipal services the
+// tenant can bill under, and scheduling an invoice once payment is
+// confirmed.
+// ============================================================
+
+function baseUrl(env: AsaasEnv): string {
+  return env === "production" ? "https://api.asaas.com/v3" : "https://sandbox.asaas.com/api/v3";
+}
+
+async function nfeFetch<T>(config: AsaasClientConfig, path: string, init: RequestInit = {}): Promise<T> {
+  const response = await fetch(`${baseUrl(config.env)}${path}`, {
+    ...init,
+    headers: {
+      "Content-Type": "application/json",
+      access_token: config.apiKey,
+      ...(init.headers ?? {}),
+    },
+  });
+  if (!response.ok) {
+    let message = `Asaas API error: ${response.status}`;
+    try {
+      const data = (await response.json()) as { errors?: Array<{ description?: string }> };
+      const first = data.errors?.[0];
+      if (first?.description) message = first.description;
+    } catch {
+      // response body wasn't JSON — keep the fallback
+    }
+    throw new Error(message);
+  }
+  return response.json() as Promise<T>;
+}
+
+export interface AsaasMunicipalService {
+  id: string;
+  municipalServiceCode: string;
+  municipalServiceName: string;
+}
+
+/**
+ * Requires the tenant to have ALREADY completed fiscal registration
+ * on their own Asaas account — if they haven't, this throws (Asaas
+ * responds with a 400 explaining what's missing), which callers
+ * surface as-is; there's nothing IMCRM can do to complete that
+ * registration on the tenant's behalf.
+ */
+export async function listMunicipalServices(
+  config: AsaasClientConfig,
+  description?: string,
+): Promise<AsaasMunicipalService[]> {
+  const qs = description ? `?description=${encodeURIComponent(description)}` : "";
+  const res = await nfeFetch<{ data: AsaasMunicipalService[] }>(config, `/invoices/municipalServices${qs}`);
+  return res.data;
+}
+
+export interface ScheduleInvoiceArgs {
+  config: AsaasClientConfig;
+  /** Asaas payment id (the PIX charge just confirmed) to attach the invoice to. */
+  paymentId: string;
+  /** Reais, not cents. */
+  value: number;
+  municipalServiceId: string;
+  municipalServiceName: string;
+  serviceDescription: string;
+  /** YYYY-MM-DD. Asaas issues on this date, not immediately. */
+  effectiveDate: string;
+  /**
+   * Municipality/tax-regime-specific — Asaas requires SOME shape here
+   * but the exact fields vary enough (retention rules, Simples
+   * Nacional vs not) that there's no universal default guaranteed to
+   * be correct. `{ retainIss: false }` covers the common small-
+   * business case; a tenant whose municipality needs something else
+   * sets `tenant_payment_configs.default_taxes` and that overrides
+   * this fallback (see the caller in the orders webhook).
+   */
+  taxes?: Record<string, unknown>;
+}
+
+export async function scheduleInvoice(
+  args: ScheduleInvoiceArgs,
+): Promise<{ id: string; status: string }> {
+  return nfeFetch(args.config, "/invoices", {
+    method: "POST",
+    body: JSON.stringify({
+      payment: args.paymentId,
+      serviceDescription: args.serviceDescription,
+      observations: args.serviceDescription,
+      value: args.value,
+      deductions: 0,
+      effectiveDate: args.effectiveDate,
+      municipalServiceId: args.municipalServiceId,
+      municipalServiceName: args.municipalServiceName,
+      taxes: args.taxes ?? { retainIss: false },
+    }),
+  });
+}

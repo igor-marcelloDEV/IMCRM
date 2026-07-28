@@ -2,6 +2,9 @@ import { timingSafeEqual } from 'node:crypto'
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/automations/admin-client'
 import { runAutomationsForTrigger } from '@/lib/automations/engine'
+import { decrypt } from '@/lib/whatsapp/encryption'
+import { scheduleInvoice } from '@/lib/orders/tenant-asaas'
+import type { AsaasEnv } from '@/lib/billing/asaas'
 
 /**
  * Asaas payment-gateway webhook receiver — for TENANT orders, not the
@@ -59,7 +62,9 @@ export async function POST(request: Request) {
 
   const { data: tenantConfig } = await db
     .from('tenant_payment_configs')
-    .select('webhook_token')
+    .select(
+      'webhook_token, encrypted_asaas_api_key, asaas_env, municipal_service_id, municipal_service_name, default_taxes, nfe_enabled',
+    )
     .eq('account_id', order.account_id)
     .maybeSingle()
   const expected = tenantConfig?.webhook_token
@@ -104,6 +109,38 @@ export async function POST(request: Request) {
       }).catch((err) => {
         console.error('[orders webhook] order_paid automation dispatch failed:', err)
       })
+
+      // NFS-e — opt-in per tenant, and only once they've picked a
+      // municipal service (implies fiscal registration is already
+      // done on their own Asaas account; see the Payments settings
+      // tab). A bad/missing config here must NEVER fail the payment
+      // confirmation above — it already committed — so failures are
+      // recorded on the order and logged, not thrown.
+      if (tenantConfig?.nfe_enabled && tenantConfig.municipal_service_id && tenantConfig.encrypted_asaas_api_key) {
+        try {
+          const apiKey = decrypt(tenantConfig.encrypted_asaas_api_key)
+          const invoice = await scheduleInvoice({
+            config: { apiKey, env: (tenantConfig.asaas_env as AsaasEnv) ?? 'sandbox' },
+            paymentId: body.payment.id,
+            value: order.total_cents / 100,
+            municipalServiceId: tenantConfig.municipal_service_id,
+            municipalServiceName: tenantConfig.municipal_service_name ?? '',
+            serviceDescription: 'Pedido via WhatsApp',
+            effectiveDate: new Date().toISOString().slice(0, 10),
+            taxes: (tenantConfig.default_taxes as Record<string, unknown> | null) ?? undefined,
+          })
+          await db
+            .from('orders')
+            .update({ invoice_id: invoice.id, invoice_status: invoice.status })
+            .eq('id', order.id)
+        } catch (err) {
+          console.error('[orders webhook] scheduleInvoice failed:', err)
+          await db
+            .from('orders')
+            .update({ invoice_status: 'error' })
+            .eq('id', order.id)
+        }
+      }
     } else if (body.event === 'PAYMENT_OVERDUE' || body.event === 'PAYMENT_DELETED') {
       // Order stays pending_payment — nothing to do beyond what's
       // already true. Left as an explicit no-op branch (rather than

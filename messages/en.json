@@ -2152,7 +2152,18 @@
       "webhookUrlCopied": "URL copied",
       "webhookTokenCopied": "Token copied",
       "copyFailed": "Couldn't copy",
-      "nfeComingSoon": "Automatic fiscal invoice (NFS-e) issuance is coming in a follow-up update — it will require your Asaas account to already have municipal/fiscal registration configured."
+      "nfeTitle": "Automatic fiscal invoice (NFS-e)",
+      "nfeWarning": "Requires fiscal/municipal registration ALREADY completed in your own Asaas dashboard (Integrations → Fiscal Info) — IMCRM doesn't do that part. Search below only works once that's done.",
+      "currentService": "Currently billing under: {service}",
+      "municipalServiceLabel": "Municipal service",
+      "pickService": "Pick a service…",
+      "noServicesYet": "Search to load your available services",
+      "searchServices": "Search municipal services",
+      "saveService": "Save service",
+      "nfeEnabledLabel": "Auto-issue invoice on payment",
+      "nfeEnabledHint": "When a checkout order is confirmed paid, automatically schedule its NFS-e.",
+      "toastServicesFailed": "Couldn't fetch municipal services.",
+      "toastNoServices": "No services returned — check your fiscal registration in Asaas."
     },
     "roles": {
       "admin": "Admin",
