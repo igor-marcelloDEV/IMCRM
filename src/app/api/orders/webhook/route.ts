@@ -1,6 +1,7 @@
 import { timingSafeEqual } from 'node:crypto'
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/automations/admin-client'
+import { runAutomationsForTrigger } from '@/lib/automations/engine'
 
 /**
  * Asaas payment-gateway webhook receiver — for TENANT orders, not the
@@ -49,7 +50,7 @@ export async function POST(request: Request) {
   const db = supabaseAdmin()
   const { data: order } = await db
     .from('orders')
-    .select('id, account_id, status')
+    .select('id, account_id, contact_id, status, total_cents, currency')
     .eq('id', body.payment.externalReference)
     .maybeSingle()
   if (!order) {
@@ -84,6 +85,25 @@ export async function POST(request: Request) {
       // Deliberately no automatic Pipeline stage change here — the
       // tenant closes the sale manually by dragging the linked Deal,
       // per the confirmed design (see the plan doc).
+
+      // Fire-and-forget — lets a tenant build a post-purchase
+      // automation (thank-you message, buyer tag, etc.) without
+      // touching the Flow that created the order. Never blocks the
+      // webhook's own response.
+      void runAutomationsForTrigger({
+        accountId: order.account_id,
+        triggerType: 'order_paid',
+        contactId: order.contact_id,
+        context: {
+          vars: {
+            order_id: order.id,
+            total_cents: order.total_cents,
+            currency: order.currency,
+          },
+        },
+      }).catch((err) => {
+        console.error('[orders webhook] order_paid automation dispatch failed:', err)
+      })
     } else if (body.event === 'PAYMENT_OVERDUE' || body.event === 'PAYMENT_DELETED') {
       // Order stays pending_payment — nothing to do beyond what's
       // already true. Left as an explicit no-op branch (rather than

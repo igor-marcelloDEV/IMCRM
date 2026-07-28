@@ -47,6 +47,10 @@ export const TRIGGER_META: Record<AutomationTriggerType, TriggerMeta> = {
     label: 'Billing — 48h Trial Offer',
     pillClass: 'border-orange-500/30 bg-orange-500/10 text-orange-300',
   },
+  order_paid: {
+    label: 'Order Paid',
+    pillClass: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300',
+  },
 }
 
 export function triggerMeta(t: AutomationTriggerType | string): TriggerMeta {

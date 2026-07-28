@@ -66,6 +66,7 @@
     "notifications": "Notifications",
     "contacts": "Contacts",
     "pipelines": "Pipelines",
+    "orders": "Orders",
     "broadcasts": "Broadcasts",
     "automations": "Automations",
     "flows": "Flows",
@@ -1054,6 +1055,10 @@
         "time_based": {
           "label": "Time-Based",
           "hint": "On a recurring schedule"
+        },
+        "order_paid": {
+          "label": "Order Paid",
+          "hint": "When a customer's checkout order is confirmed as paid"
         }
       },
       "trigger": "Trigger",
@@ -1812,6 +1817,29 @@
         "refunded": "Refunded",
         "failed": "Failed"
       }
+    }
+  },
+  "Orders": {
+    "title": "Orders",
+    "description": "Orders placed through the checkout Flow node — cart contents, payment status, and the linked Deal.",
+    "paidCount": "Paid orders",
+    "paidTotal": "Paid total",
+    "listTitle": "All orders",
+    "listDescription": "The last 100 orders for this account, newest first.",
+    "empty": "No orders yet. They show up here once a customer finishes a checkout Flow.",
+    "colContact": "Customer",
+    "colItems": "Items",
+    "colTotal": "Total",
+    "colStatus": "Status",
+    "colDeal": "Deal",
+    "colDate": "Date",
+    "unknownContact": "Unknown contact",
+    "itemCount": "{count} {count, plural, =1 {item} other {items}}",
+    "viewDeal": "View in Pipeline",
+    "status": {
+      "pending_payment": "Awaiting payment",
+      "paid": "Paid",
+      "canceled": "Canceled"
     }
   },
   "Settings": {

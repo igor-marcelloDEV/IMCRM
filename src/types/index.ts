@@ -499,7 +499,12 @@ export type AutomationTriggerType =
    *  coupon in context.vars. */
   | 'billing_nudge_24h'
   /** Same cron, 48h mark — offers a 24h free trial instead. */
-  | 'billing_nudge_48h';
+  | 'billing_nudge_48h'
+  /** Dispatched by /api/orders/webhook on PAYMENT_CONFIRMED — lets a
+   *  tenant build a post-purchase automation (thank-you message, tag
+   *  the contact as a buyer, etc.) without touching the Flow that
+   *  created the order. context.vars carries order_id/total_cents. */
+  | 'order_paid';
 
 export type AutomationStepType =
   | 'send_message'

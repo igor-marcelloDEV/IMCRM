@@ -66,6 +66,7 @@
     "notifications": "Notificações",
     "contacts": "Contatos",
     "pipelines": "Funis",
+    "orders": "Pedidos",
     "broadcasts": "Disparos",
     "automations": "Automações",
     "flows": "Fluxos",
@@ -1054,6 +1055,10 @@
         "time_based": {
           "label": "Baseado em horário",
           "hint": "Em uma programação recorrente"
+        },
+        "order_paid": {
+          "label": "Pedido pago",
+          "hint": "Quando o pagamento de um pedido do checkout é confirmado"
         }
       },
       "trigger": "Gatilho",
@@ -1812,6 +1817,29 @@
         "refunded": "Reembolsado",
         "failed": "Falhou"
       }
+    }
+  },
+  "Orders": {
+    "title": "Pedidos",
+    "description": "Pedidos feitos pelo nó de Fechar pedido — itens do carrinho, status do pagamento e o Negócio vinculado.",
+    "paidCount": "Pedidos pagos",
+    "paidTotal": "Total pago",
+    "listTitle": "Todos os pedidos",
+    "listDescription": "Os últimos 100 pedidos desta conta, mais recentes primeiro.",
+    "empty": "Nenhum pedido ainda. Eles aparecem aqui quando um cliente termina um Fluxo de checkout.",
+    "colContact": "Cliente",
+    "colItems": "Itens",
+    "colTotal": "Total",
+    "colStatus": "Status",
+    "colDeal": "Negócio",
+    "colDate": "Data",
+    "unknownContact": "Contato desconhecido",
+    "itemCount": "{count} {count, plural, =1 {item} other {itens}}",
+    "viewDeal": "Ver no Funil",
+    "status": {
+      "pending_payment": "Aguardando pagamento",
+      "paid": "Pago",
+      "canceled": "Cancelado"
     }
   },
   "Settings": {
