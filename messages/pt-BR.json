@@ -1372,10 +1372,22 @@
         "filenamePlaceholder": "fatura.pdf",
         "advanceAfterSending": "Após enviar, avançar para",
         "pickNextNode": "Escolha o próximo nó…",
-        "none": "— Nenhum —"
+        "none": "— Nenhum —",
+        "showCatalogHelp": "A lista de produtos não é montada aqui — ela é gerada ao vivo a partir de Configurações → Catálogo toda vez que este nó envia.",
+        "introTextLabel": "Texto de introdução (mostrado acima da lista de produtos)",
+        "checkoutRowLeadsTo": "Linha \"Fechar pedido\" avança para",
+        "checkoutHelp": "Mostra o carrinho + sugestões de upsell, pede CPF/CNPJ uma vez se necessário, e então cria o pedido e um Negócio vinculado.",
+        "pipelineLabel": "Funil",
+        "pickPipeline": "Escolha um funil…",
+        "stageLabel": "Etapa",
+        "pickStage": "Escolha uma etapa…",
+        "dealCreatedHint": "Um Negócio é criado aqui com o total do pedido como valor — fechar a venda é arrastá-lo pra uma etapa de ganho, igual a qualquer outro negócio.",
+        "cpfPromptLabel": "Pergunta de CPF/CNPJ (feita uma vez, só se ainda não estiver salvo)",
+        "afterOrderCreated": "Depois que o pedido é criado, avançar para"
       },
       "categories": {
         "messaging": "Mensagens",
+        "commerce": "Catálogo e pedidos",
         "logic": "Lógica e dados",
         "flow": "Controle de fluxo"
       },
@@ -1415,6 +1427,14 @@
         "handoff": {
           "label": "Transferir para agente",
           "blurb": "Transfere a conversa para um humano"
+        },
+        "show_catalog": {
+          "label": "Mostrar catálogo",
+          "blurb": "Envia o catálogo ao vivo de produtos/serviços; toques adicionam ao carrinho"
+        },
+        "checkout": {
+          "label": "Fechar pedido",
+          "blurb": "Revisa o carrinho, sugere upsell e cria o pedido"
         },
         "end": {
           "label": "Fim",
@@ -1496,6 +1516,16 @@
           "needsTag": "Marcar/desmarcar tag precisa de uma tag pra aplicar.",
           "needsNext": "Marcar/desmarcar tag precisa apontar para um próximo nó.",
           "nextMissing": "Marcar/desmarcar tag aponta para um nó inexistente \"{key}\"."
+        },
+        "showCatalog": {
+          "needsNext": "A linha de fechar pedido do catálogo precisa apontar para um próximo nó.",
+          "nextMissing": "Mostrar catálogo aponta para um nó inexistente \"{key}\"."
+        },
+        "checkout": {
+          "needsPipeline": "Fechar pedido precisa de um funil pra registrar o negócio do pedido.",
+          "needsStage": "Fechar pedido precisa de uma etapa do funil pro novo negócio.",
+          "needsNext": "Fechar pedido precisa apontar para um próximo nó.",
+          "nextMissing": "Fechar pedido aponta para um nó inexistente \"{key}\"."
         }
       }
     },
@@ -1528,7 +1558,10 @@
       "modeAdd": "Adicionar",
       "modeRemove": "Remover",
       "tagPicked": "{mode} etiqueta {tag}…",
-      "tagNone": "{mode} etiqueta (nenhuma escolhida)"
+      "tagNone": "{mode} etiqueta (nenhuma escolhida)",
+      "liveCatalog": "Catálogo ao vivo de Configurações → Catálogo",
+      "checkoutConfigured": "Revisão de carrinho + criação de pedido",
+      "checkoutNoPipeline": "Escolha um funil pra registrar o pedido"
     }
   },
   "SignupPage": {
@@ -2033,6 +2066,41 @@
       "toastCreated": "Resposta rápida criada.",
       "toastDeleteFailed": "Não foi possível excluir a resposta rápida."
     },
+    "catalog": {
+      "title": "Catálogo",
+      "description": "Produtos ou serviços que seus Fluxos podem oferecer durante uma conversa no WhatsApp — com foto/vídeo, preço e sugestões de upsell opcionais.",
+      "newItem": "Novo item",
+      "empty": "Nenhum item no catálogo ainda. Adicione um para começar a vender por um Fluxo.",
+      "editTitle": "Editar item",
+      "newTitle": "Novo item",
+      "nameLabel": "Nome",
+      "namePlaceholder": "ex.: Corte de cabelo",
+      "descriptionLabel": "Descrição",
+      "descriptionPlaceholder": "Mostrada ao cliente durante a navegação",
+      "priceLabel": "Preço",
+      "mediaLabel": "Foto ou vídeo",
+      "clickToUpload": "Clique para enviar",
+      "uploading": "Enviando...",
+      "removeFile": "Remover arquivo",
+      "fileUploaded": "Arquivo enviado",
+      "toastUploadFailed": "Falha no envio",
+      "toastMediaFileTooLarge": "Arquivo muito grande ({size} MB)",
+      "upsellLabel": "Sugerir como upsell",
+      "upsellHint": "Oferecido como extra no fechamento do pedido pra aumentar o ticket.",
+      "upsellBadge": "Upsell",
+      "activeLabel": "Ativo",
+      "activeHint": "Itens inativos não aparecem no catálogo enviado aos clientes.",
+      "inactiveBadge": "Inativo",
+      "cancel": "Cancelar",
+      "save": "Salvar",
+      "deleteConfirm": "Excluir este item?",
+      "toastNameRequired": "Dê um nome ao item.",
+      "toastPriceInvalid": "Informe um preço válido.",
+      "toastSaveFailed": "Não foi possível salvar o item.",
+      "toastUpdated": "Item atualizado.",
+      "toastCreated": "Item criado.",
+      "toastDeleteFailed": "Não foi possível excluir o item."
+    },
     "roles": {
       "admin": "Admin",
       "adminHint": "Gerencia membros e tudo mais",
@@ -2172,6 +2240,7 @@
       "whatsapp": "WhatsApp",
       "templates": "Modelos",
       "quick-replies": "Respostas rápidas",
+      "catalog": "Catálogo",
       "fields": "Campos e etiquetas",
       "deals": "Negócios e moeda",
       "members": "Membros da equipe",

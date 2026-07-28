@@ -185,6 +185,10 @@ export function defaultConfigFor(type: NodeType): Record<string, unknown> {
       return { mode: "add", tag_id: "", next_node_key: "" };
     case "handoff":
       return { note: "" };
+    case "show_catalog":
+      return { intro_text: "", next_node_key: "" };
+    case "checkout":
+      return { pipeline_id: "", stage_id: "", cpf_cnpj_prompt: "", next_node_key: "" };
     case "end":
       return {};
   }

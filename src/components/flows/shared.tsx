@@ -23,8 +23,10 @@ import {
   ListChecks,
   ListPlus,
   MessageCircle,
+  Package,
   Paperclip,
   PlayCircle,
+  ShoppingCart,
   Tag,
   UserPlus,
   Workflow,
@@ -50,6 +52,8 @@ export type NodeType =
   | 'condition'
   | 'set_tag'
   | 'handoff'
+  | 'show_catalog'
+  | 'checkout'
   | 'end';
 
 export interface BuilderNode {
@@ -77,11 +81,12 @@ export interface BuilderNode {
 // the canvas, so `start` is just the entry point under Flow control.
 // ------------------------------------------------------------
 
-export type NodeCategory = 'messaging' | 'logic' | 'flow';
+export type NodeCategory = 'messaging' | 'commerce' | 'logic' | 'flow';
 
 /** Category labels + the order they render in the add-step menu. */
 export const NODE_CATEGORIES: { id: NodeCategory; label: string }[] = [
   { id: 'messaging', label: 'Messaging' },
+  { id: 'commerce', label: 'Catalog & orders' },
   { id: 'logic', label: 'Logic & data' },
   { id: 'flow', label: 'Flow control' },
 ];
@@ -159,6 +164,20 @@ export const NODE_META: Record<
     blurb: 'Hands the conversation to a human',
     category: 'flow',
   },
+  show_catalog: {
+    label: 'Show catalog',
+    icon: Package,
+    color: 'text-orange-400',
+    blurb: 'Sends the live product/service catalog; taps add to cart',
+    category: 'commerce',
+  },
+  checkout: {
+    label: 'Checkout',
+    icon: ShoppingCart,
+    color: 'text-lime-400',
+    blurb: 'Reviews the cart, offers upsells, creates the order',
+    category: 'commerce',
+  },
   end: {
     label: 'End',
     icon: Flag,
@@ -206,6 +225,8 @@ const NODE_HUE: Record<NodeType, { l: number; c: number; h: number }> = {
   condition: { l: 0.72, c: 0.15, h: 65 }, // amber — a fork in the road
   set_tag: { l: 0.65, c: 0.15, h: 350 }, // pink
   handoff: { l: 0.65, c: 0.17, h: 16 }, // rose — hands off
+  show_catalog: { l: 0.68, c: 0.15, h: 45 }, // orange — the product list
+  checkout: { l: 0.68, c: 0.15, h: 130 }, // lime — money changing hands
   end: { l: 0.55, c: 0.01, h: 260 }, // neutral grey — terminal
 };
 
@@ -423,6 +444,16 @@ export function summarizeNode(
     case 'handoff': {
       const note = typeof cfg.note === 'string' ? cfg.note : '';
       return note.length > 0 ? truncate(note) : null;
+    }
+    case 'show_catalog': {
+      const intro = typeof cfg.intro_text === 'string' ? cfg.intro_text : '';
+      return intro.length > 0 ? truncate(intro) : (t ? t('liveCatalog') : 'Live catalog from Settings → Catalog');
+    }
+    case 'checkout': {
+      const hasPipeline = typeof cfg.pipeline_id === 'string' && cfg.pipeline_id.length > 0;
+      return hasPipeline
+        ? (t ? t('checkoutConfigured') : 'Cart review + order creation')
+        : (t ? t('checkoutNoPipeline') : 'Pick a pipeline to file the order under');
     }
   }
 }

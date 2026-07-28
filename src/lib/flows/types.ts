@@ -177,6 +177,45 @@ export interface SetTagNodeConfig {
 export type EndNodeConfig = Record<string, never>;
 
 /**
+ * Dynamic, data-driven node — unlike every other node type, its
+ * outbound content isn't authored on the canvas. At send time it
+ * queries the account's live `catalog_items` and renders them as an
+ * interactive list, so adding a product in Settings shows up here
+ * without touching the flow. Tapping a product row adds it to the
+ * contact's open cart and RE-SENDS this same node (the engine loops
+ * on itself, same node_key) with the cart total in the body text;
+ * tapping the reserved "checkout" row advances to `next_node_key`.
+ */
+export interface ShowCatalogNodeConfig {
+  /** Shown above the product list. Supports {{vars.*}} interpolation. */
+  intro_text?: string;
+  /** Where the "Fechar pedido" row leads — normally a `checkout` node. */
+  next_node_key: string;
+}
+
+/**
+ * Cart review + upsell + order creation. Also a dynamic/looping node
+ * (same shape as `show_catalog`): shows the cart, offers up to 9
+ * `is_upsell` items as extra rows, and loops on itself when one is
+ * added. Tapping "Finalizar pedido" asks for the contact's CPF/CNPJ
+ * once (a plain text capture, reusing collect_input's mechanism
+ * rather than a separate node) if not already on file, then creates
+ * `orders`/`order_items` and a linked Deal in `pipeline_id`/`stage_id`.
+ *
+ * v1.5 scope: no payment call yet (see the `checkout` case in
+ * engine.ts) — the order lands as `pending_payment`. The Asaas charge
+ * is wired in a follow-up change once per-tenant payment config ships.
+ */
+export interface CheckoutNodeConfig {
+  pipeline_id: string;
+  stage_id: string;
+  /** Asked once, only if the contact has no cpf_cnpj on file yet. */
+  cpf_cnpj_prompt?: string;
+  /** Where to go once the order is created (e.g. a thank-you message). */
+  next_node_key: string;
+}
+
+/**
  * Total union — every concrete node_type the v1 engine understands.
  * Add new node types here and the engine's switch will flag missing
  * cases via TypeScript's exhaustiveness check.
@@ -194,6 +233,8 @@ export type FlowNodeConfig =
   | { node_type: "condition"; config: ConditionNodeConfig }
   | { node_type: "set_tag"; config: SetTagNodeConfig }
   | { node_type: "handoff"; config: HandoffNodeConfig }
+  | { node_type: "show_catalog"; config: ShowCatalogNodeConfig }
+  | { node_type: "checkout"; config: CheckoutNodeConfig }
   | { node_type: "end"; config: EndNodeConfig };
 
 export type FlowNodeType = FlowNodeConfig["node_type"];

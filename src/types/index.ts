@@ -706,3 +706,57 @@ export interface QuickReply {
   created_at: string;
   updated_at: string;
 }
+
+// ============================================================
+// Catalog / orders — a tenant's own products/services, sold through
+// the `show_catalog` / `checkout` Flow node types (src/lib/flows).
+// ============================================================
+
+export interface CatalogItem {
+  id: string;
+  account_id: string;
+  name: string;
+  description: string | null;
+  price_cents: number;
+  currency: string;
+  media_url: string | null;
+  media_type: 'image' | 'video' | null;
+  /** Surfaced as a suggestion at checkout to lift ticket size. */
+  is_upsell: boolean;
+  is_active: boolean;
+  position: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export type OrderStatus = 'pending_payment' | 'paid' | 'canceled';
+
+export interface Order {
+  id: string;
+  account_id: string;
+  cart_id: string | null;
+  contact_id: string;
+  deal_id: string | null;
+  status: OrderStatus;
+  subtotal_cents: number;
+  total_cents: number;
+  currency: string;
+  gateway_customer_id: string | null;
+  gateway_payment_id: string | null;
+  invoice_id: string | null;
+  invoice_status: string | null;
+  created_at: string;
+  updated_at: string;
+  paid_at: string | null;
+}
+
+export interface OrderItem {
+  id: string;
+  order_id: string;
+  catalog_item_id: string | null;
+  name_snapshot: string;
+  quantity: number;
+  unit_price_cents: number;
+  total_cents: number;
+  created_at: string;
+}

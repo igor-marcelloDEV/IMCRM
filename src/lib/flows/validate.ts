@@ -795,6 +795,80 @@ function validateNode(
       break;
     }
 
+    case "show_catalog": {
+      const cfg = node.config as { next_node_key?: string };
+      if (!cfg.next_node_key) {
+        issues.push({
+          severity: "error",
+          scope: "node",
+          node_key: node.node_key,
+          field: "next_node_key",
+          message: "Show-catalog's checkout row must point to a next node.",
+          messageKey: "showCatalog.needsNext",
+        });
+      } else if (!knownKeys.has(cfg.next_node_key)) {
+        issues.push({
+          severity: "error",
+          scope: "node",
+          node_key: node.node_key,
+          field: "next_node_key",
+          message: `Show-catalog points to non-existent node "${cfg.next_node_key}".`,
+          messageKey: "showCatalog.nextMissing",
+          params: { key: cfg.next_node_key },
+        });
+      }
+      break;
+    }
+
+    case "checkout": {
+      const cfg = node.config as {
+        pipeline_id?: string;
+        stage_id?: string;
+        next_node_key?: string;
+      };
+      if (!cfg.pipeline_id) {
+        issues.push({
+          severity: "error",
+          scope: "node",
+          node_key: node.node_key,
+          field: "pipeline_id",
+          message: "Checkout needs a pipeline to file the order's deal under.",
+          messageKey: "checkout.needsPipeline",
+        });
+      }
+      if (!cfg.stage_id) {
+        issues.push({
+          severity: "error",
+          scope: "node",
+          node_key: node.node_key,
+          field: "stage_id",
+          message: "Checkout needs a pipeline stage for the new deal.",
+          messageKey: "checkout.needsStage",
+        });
+      }
+      if (!cfg.next_node_key) {
+        issues.push({
+          severity: "error",
+          scope: "node",
+          node_key: node.node_key,
+          field: "next_node_key",
+          message: "Checkout must point to a next node.",
+          messageKey: "checkout.needsNext",
+        });
+      } else if (!knownKeys.has(cfg.next_node_key)) {
+        issues.push({
+          severity: "error",
+          scope: "node",
+          node_key: node.node_key,
+          field: "next_node_key",
+          message: `Checkout points to non-existent node "${cfg.next_node_key}".`,
+          messageKey: "checkout.nextMissing",
+          params: { key: cfg.next_node_key },
+        });
+      }
+      break;
+    }
+
     case "handoff":
     case "end":
       // Terminal nodes have no outgoing edges; nothing to validate
@@ -847,7 +921,9 @@ function outgoingEdges(node: NodeInput): string[] {
     case "send_message":
     case "send_media":
     case "collect_input":
-    case "set_tag": {
+    case "set_tag":
+    case "show_catalog":
+    case "checkout": {
       const cfg = node.config as { next_node_key?: string };
       return cfg.next_node_key ? [cfg.next_node_key] : [];
     }

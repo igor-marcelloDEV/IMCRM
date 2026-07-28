@@ -43,6 +43,7 @@ import { decideFallback, resolveFallbackPolicy } from "./fallback";
 import { addContactTagAndDispatch } from "@/lib/contacts/tag-events";
 import { removeContactTag } from "@/lib/contacts/tag-write";
 import {
+  type CheckoutNodeConfig,
   type CollectInputNodeConfig,
   type ConditionNodeConfig,
   type DispatchInboundInput,
@@ -56,6 +57,7 @@ import {
   type SendMediaNodeConfig,
   type SendMessageNodeConfig,
   type SetTagNodeConfig,
+  type ShowCatalogNodeConfig,
   type StartNodeConfig,
   type KeywordTriggerConfig,
 } from "./types";
@@ -173,7 +175,9 @@ export function isSuspending(node_type: string): boolean {
   return (
     node_type === "send_buttons" ||
     node_type === "send_list" ||
-    node_type === "collect_input"
+    node_type === "collect_input" ||
+    node_type === "show_catalog" ||
+    node_type === "checkout"
   );
 }
 
@@ -476,6 +480,446 @@ async function sendListAndSuspend(
     })
     .eq("id", run.id);
   return { outcome: "advanced", node_key: node.node_key };
+}
+
+// ============================================================
+// Commerce — show_catalog / checkout node types.
+//
+// Both are "dynamic" nodes: their outbound content is built from live
+// `catalog_items`/`cart_items` rows at send time rather than authored
+// on the canvas, and tapping a product/upsell row RE-ENTERS the same
+// node (the reply handler sets `matched = currentNode.node_key`,
+// which `advanceFromNodeKey` treats like any other advance — see
+// `handleReplyForActiveRun`). The only genuinely new control-flow
+// shape is `checkout`'s CPF/CNPJ prompt: it needs to suspend WITHOUT
+// re-sending the cart-review list, tracked via a `vars` flag
+// (`__checkout_awaiting_cpf`) rather than a new run-state column —
+// same "scratch space" role `vars` already plays for collect_input.
+//
+// No payment call yet (v1.5 scope) — `createOrderFromCart` records
+// the order as `pending_payment` and creates the linked Deal; the
+// Asaas charge is wired in once per-tenant payment config ships.
+// ============================================================
+
+const CATALOG_CHECKOUT_REPLY_ID = "__checkout__";
+const CHECKOUT_FINALIZE_REPLY_ID = "__finalize__";
+const MAX_CATALOG_ROWS = 9; // + the reserved checkout row = Meta's 10-row cap
+const MAX_UPSELL_ROWS = 9;
+const DEFAULT_CPF_PROMPT =
+  "Pra emitir a cobrança, me informa seu CPF ou CNPJ:";
+
+function formatCents(cents: number, currency: string): string {
+  try {
+    return new Intl.NumberFormat("pt-BR", { style: "currency", currency }).format(cents / 100);
+  } catch {
+    return `${currency} ${(cents / 100).toFixed(2)}`;
+  }
+}
+
+/** Meta list row titles cap at 24 chars (INTERACTIVE_LIMITS.listRowTitleMaxLength). */
+function truncateForList(s: string, max: number): string {
+  const clean = s.replace(/\s+/g, " ").trim();
+  return clean.length <= max ? clean : clean.slice(0, max - 1) + "…";
+}
+
+async function loadAccountCurrency(db: AdminClient, accountId: string): Promise<string> {
+  const { data } = await db
+    .from("accounts")
+    .select("default_currency")
+    .eq("id", accountId)
+    .maybeSingle();
+  return (data as { default_currency?: string } | null)?.default_currency ?? "BRL";
+}
+
+interface ActiveCatalogItem {
+  id: string;
+  name: string;
+  price_cents: number;
+}
+
+async function loadActiveCatalogItems(
+  db: AdminClient,
+  accountId: string,
+  limit: number,
+): Promise<ActiveCatalogItem[]> {
+  const { data } = await db
+    .from("catalog_items")
+    .select("id, name, price_cents")
+    .eq("account_id", accountId)
+    .eq("is_active", true)
+    .order("position", { ascending: true })
+    .limit(limit);
+  return (data as ActiveCatalogItem[] | null) ?? [];
+}
+
+/**
+ * Get the contact's open cart, creating one if none exists. Races
+ * against `idx_one_open_cart_per_contact` (migration 046) — a losing
+ * concurrent INSERT re-reads rather than erroring, same pattern
+ * `startNewRun`'s 23505 handling uses for flow_runs.
+ */
+async function getOrCreateOpenCart(
+  db: AdminClient,
+  args: { accountId: string; contactId: string; conversationId: string | null },
+): Promise<string> {
+  const { data: existing } = await db
+    .from("carts")
+    .select("id")
+    .eq("contact_id", args.contactId)
+    .eq("status", "open")
+    .maybeSingle();
+  if (existing) return (existing as { id: string }).id;
+
+  const { data: created, error } = await db
+    .from("carts")
+    .insert({
+      account_id: args.accountId,
+      contact_id: args.contactId,
+      conversation_id: args.conversationId,
+    })
+    .select("id")
+    .maybeSingle();
+  if (created) return (created as { id: string }).id;
+
+  if (error) {
+    const { data: retry } = await db
+      .from("carts")
+      .select("id")
+      .eq("contact_id", args.contactId)
+      .eq("status", "open")
+      .maybeSingle();
+    if (retry) return (retry as { id: string }).id;
+  }
+  throw error ?? new Error("failed to create cart");
+}
+
+/**
+ * Validates `catalogItemId` belongs to this account and is active,
+ * then upserts it into the contact's open cart (incrementing quantity
+ * on a repeat add). Returns the item's name on success, or `null` if
+ * the id doesn't resolve to a live catalog item — the caller treats
+ * that the same as "no match" (stale button, tampered reply_id).
+ */
+async function addCatalogItemToCart(
+  db: AdminClient,
+  args: {
+    accountId: string;
+    contactId: string;
+    conversationId: string | null;
+    catalogItemId: string;
+  },
+): Promise<{ name: string } | null> {
+  const { data: item } = await db
+    .from("catalog_items")
+    .select("id, name, price_cents")
+    .eq("account_id", args.accountId)
+    .eq("id", args.catalogItemId)
+    .eq("is_active", true)
+    .maybeSingle();
+  if (!item) return null;
+  const typedItem = item as { id: string; name: string; price_cents: number };
+
+  const cartId = await getOrCreateOpenCart(db, args);
+  const { data: line } = await db
+    .from("cart_items")
+    .select("id, quantity")
+    .eq("cart_id", cartId)
+    .eq("catalog_item_id", typedItem.id)
+    .maybeSingle();
+  if (line) {
+    const typedLine = line as { id: string; quantity: number };
+    await db
+      .from("cart_items")
+      .update({ quantity: typedLine.quantity + 1 })
+      .eq("id", typedLine.id);
+  } else {
+    await db.from("cart_items").insert({
+      cart_id: cartId,
+      catalog_item_id: typedItem.id,
+      quantity: 1,
+      unit_price_cents: typedItem.price_cents,
+    });
+  }
+  return { name: typedItem.name };
+}
+
+interface CartLine {
+  catalogItemId: string;
+  name: string;
+  quantity: number;
+  unitPriceCents: number;
+  subtotalCents: number;
+}
+
+interface CartSummary {
+  cartId: string;
+  lines: CartLine[];
+  subtotalCents: number;
+}
+
+/**
+ * Two separate queries (cart_items, then catalog_items by id) rather
+ * than an embedded FK select — PostgREST's embedded-relationship
+ * resolution needs its schema cache to already know the FK, which is
+ * exactly the thing most likely to be stale right after the migration
+ * that added these tables (see use-auth.tsx's getCurrentAccount for
+ * the same rationale, issue #294).
+ */
+async function loadCartSummary(
+  db: AdminClient,
+  contactId: string,
+): Promise<CartSummary | null> {
+  const { data: cart } = await db
+    .from("carts")
+    .select("id")
+    .eq("contact_id", contactId)
+    .eq("status", "open")
+    .maybeSingle();
+  if (!cart) return null;
+  const cartId = (cart as { id: string }).id;
+
+  const { data: items } = await db
+    .from("cart_items")
+    .select("catalog_item_id, quantity, unit_price_cents")
+    .eq("cart_id", cartId);
+  const rows =
+    (items as Array<{ catalog_item_id: string; quantity: number; unit_price_cents: number }> | null) ?? [];
+  if (rows.length === 0) return { cartId, lines: [], subtotalCents: 0 };
+
+  const { data: catalogRows } = await db
+    .from("catalog_items")
+    .select("id, name")
+    .in(
+      "id",
+      rows.map((r) => r.catalog_item_id),
+    );
+  const nameById = new Map(
+    ((catalogRows as Array<{ id: string; name: string }> | null) ?? []).map((c) => [c.id, c.name]),
+  );
+
+  const lines: CartLine[] = rows.map((r) => ({
+    catalogItemId: r.catalog_item_id,
+    name: nameById.get(r.catalog_item_id) ?? "Item",
+    quantity: r.quantity,
+    unitPriceCents: r.unit_price_cents,
+    subtotalCents: r.quantity * r.unit_price_cents,
+  }));
+  return { cartId, lines, subtotalCents: lines.reduce((s, l) => s + l.subtotalCents, 0) };
+}
+
+/**
+ * Side-effecting order creation — mirrors the automations engine's
+ * `create_deal` step (same explicit pipeline_id/stage_id requirement,
+ * same account default_currency lookup). Snapshots the cart into
+ * `order_items` so later catalog edits never rewrite history, then
+ * closes the cart. No-ops (returns null) on an empty cart — callers
+ * only reach this after `sendCheckoutAndSuspend` has already refused
+ * to let an empty cart finalize.
+ */
+async function createOrderFromCart(
+  db: AdminClient,
+  run: FlowRunRow,
+  cfg: CheckoutNodeConfig,
+): Promise<{ orderId: string } | null> {
+  const summary = await loadCartSummary(db, run.contact_id!);
+  if (!summary || summary.lines.length === 0) return null;
+
+  const currency = await loadAccountCurrency(db, run.account_id);
+
+  const { data: order, error } = await db
+    .from("orders")
+    .insert({
+      account_id: run.account_id,
+      cart_id: summary.cartId,
+      contact_id: run.contact_id,
+      status: "pending_payment",
+      subtotal_cents: summary.subtotalCents,
+      total_cents: summary.subtotalCents,
+      currency,
+    })
+    .select("id")
+    .maybeSingle();
+  if (error || !order) return null;
+  const orderId = (order as { id: string }).id;
+
+  await db.from("order_items").insert(
+    summary.lines.map((l) => ({
+      order_id: orderId,
+      catalog_item_id: l.catalogItemId,
+      name_snapshot: l.name,
+      quantity: l.quantity,
+      unit_price_cents: l.unitPriceCents,
+      total_cents: l.subtotalCents,
+    })),
+  );
+
+  // Linked Deal (per the confirmed design — the tenant closes the
+  // sale by dragging this deal to a won stage; nothing here moves it
+  // automatically, including once payment is confirmed).
+  const { data: deal } = await db
+    .from("deals")
+    .insert({
+      account_id: run.account_id,
+      user_id: run.user_id,
+      pipeline_id: cfg.pipeline_id,
+      stage_id: cfg.stage_id,
+      contact_id: run.contact_id,
+      conversation_id: run.conversation_id,
+      title: "Pedido via WhatsApp",
+      value: summary.subtotalCents / 100,
+      currency,
+      status: "open",
+    })
+    .select("id")
+    .maybeSingle();
+  if (deal) {
+    await db.from("orders").update({ deal_id: (deal as { id: string }).id }).eq("id", orderId);
+  }
+
+  await db.from("carts").update({ status: "checked_out" }).eq("id", summary.cartId);
+  return { orderId };
+}
+
+/**
+ * Sends the live catalog as an interactive list + a reserved
+ * "checkout" row, and stashes the message id for inbox quoting — same
+ * bookkeeping `sendListAndSuspend` does. Safe to call repeatedly on
+ * the same node (the loop path): each call re-queries catalog/cart
+ * state, so the cart line in the body text is always current.
+ */
+async function sendCatalogAndSuspend(
+  db: AdminClient,
+  run: FlowRunRow,
+  node: FlowNodeRow,
+): Promise<void> {
+  const cfg = node.config as unknown as ShowCatalogNodeConfig;
+  const items = await loadActiveCatalogItems(db, run.account_id, MAX_CATALOG_ROWS);
+  const summary = await loadCartSummary(db, run.contact_id!);
+  const cartCount = summary?.lines.length ?? 0;
+  const cartLine =
+    cartCount > 0
+      ? `\n\n🛒 Carrinho: ${cartCount} ite${cartCount === 1 ? "m" : "ns"} — ${formatCents(summary!.subtotalCents, await loadAccountCurrency(db, run.account_id))}`
+      : "";
+  const bodyText = `${interpolateVars(cfg.intro_text || "Veja nosso catálogo:", run.vars)}${cartLine}`;
+
+  const currency = await loadAccountCurrency(db, run.account_id);
+  const rows = items.map((it) => ({
+    id: it.id,
+    title: truncateForList(it.name, 24),
+    description: formatCents(it.price_cents, currency),
+  }));
+  rows.push({
+    id: CATALOG_CHECKOUT_REPLY_ID,
+    title: "🛒 Fechar pedido",
+    description: cartCount > 0 ? `${cartCount} ite${cartCount === 1 ? "m" : "ns"} no carrinho` : "Carrinho vazio",
+  });
+
+  const { whatsapp_message_id } = await engineSendInteractiveList({
+    accountId: run.account_id,
+    userId: run.user_id,
+    conversationId: run.conversation_id!,
+    contactId: run.contact_id!,
+    bodyText,
+    buttonLabel: "Ver opções",
+    sections: [{ rows }],
+  });
+  await logEvent(db, run.id, "message_sent", node.node_key, {
+    node_type: "show_catalog",
+    whatsapp_message_id,
+  });
+  const { data: msg } = await db
+    .from("messages")
+    .select("id")
+    .eq("message_id", whatsapp_message_id)
+    .maybeSingle();
+  await db
+    .from("flow_runs")
+    .update({ last_prompt_message_id: (msg as { id: string } | null)?.id ?? null })
+    .eq("id", run.id);
+}
+
+/**
+ * Sends the cart review (line items + total), up to MAX_UPSELL_ROWS
+ * suggestion rows, and a "Finalizar pedido" row. Returns
+ * `{ ended: true }` when the cart is empty — the caller must not
+ * suspend on a node that just ended the run.
+ */
+async function sendCheckoutAndSuspend(
+  db: AdminClient,
+  run: FlowRunRow,
+  node: FlowNodeRow,
+): Promise<{ ended: boolean }> {
+  const summary = await loadCartSummary(db, run.contact_id!);
+  const currency = await loadAccountCurrency(db, run.account_id);
+
+  if (!summary || summary.lines.length === 0) {
+    try {
+      await engineSendText({
+        accountId: run.account_id,
+        userId: run.user_id,
+        conversationId: run.conversation_id!,
+        contactId: run.contact_id!,
+        text: "Seu carrinho está vazio no momento.",
+      });
+    } catch {
+      // Best-effort — ending the run matters more than this send.
+    }
+    await logEvent(db, run.id, "completed", node.node_key, { reason: "empty_cart_at_checkout" });
+    await endRun(db, run.id, "completed", "empty_cart_at_checkout");
+    return { ended: true };
+  }
+
+  const cartItemIds = new Set(summary.lines.map((l) => l.catalogItemId));
+  const { data: upsellRaw } = await db
+    .from("catalog_items")
+    .select("id, name, price_cents")
+    .eq("account_id", run.account_id)
+    .eq("is_active", true)
+    .eq("is_upsell", true)
+    .limit(MAX_UPSELL_ROWS + cartItemIds.size);
+  const upsellCandidates = (upsellRaw as ActiveCatalogItem[] | null) ?? [];
+  const upsellRows = upsellCandidates
+    .filter((c) => !cartItemIds.has(c.id))
+    .slice(0, MAX_UPSELL_ROWS)
+    .map((c) => ({
+      id: c.id,
+      title: truncateForList(c.name, 24),
+      description: `+ ${formatCents(c.price_cents, currency)}`,
+    }));
+
+  const lineText = summary.lines
+    .map((l) => `• ${l.quantity}x ${l.name} — ${formatCents(l.subtotalCents, currency)}`)
+    .join("\n");
+  const bodyText = `Seu pedido:\n${lineText}\n\nTotal: ${formatCents(summary.subtotalCents, currency)}`;
+
+  const rows = [
+    ...upsellRows,
+    { id: CHECKOUT_FINALIZE_REPLY_ID, title: "✅ Finalizar pedido", description: "Confirmar e enviar" },
+  ];
+
+  const { whatsapp_message_id } = await engineSendInteractiveList({
+    accountId: run.account_id,
+    userId: run.user_id,
+    conversationId: run.conversation_id!,
+    contactId: run.contact_id!,
+    bodyText,
+    buttonLabel: "Ver opções",
+    sections: [{ rows }],
+  });
+  await logEvent(db, run.id, "message_sent", node.node_key, {
+    node_type: "checkout",
+    whatsapp_message_id,
+  });
+  const { data: msg } = await db
+    .from("messages")
+    .select("id")
+    .eq("message_id", whatsapp_message_id)
+    .maybeSingle();
+  await db
+    .from("flow_runs")
+    .update({ last_prompt_message_id: (msg as { id: string } | null)?.id ?? null })
+    .eq("id", run.id);
+  return { ended: false };
 }
 
 async function executeHandoff(
@@ -815,6 +1259,39 @@ async function advanceFromNodeKey(
       }
       return { outcome: "advanced" };
     }
+    if (node.node_type === "show_catalog") {
+      await sendCatalogAndSuspend(db, run, node);
+      const advanced = await advanceCurrentNodeKey(
+        db,
+        run.id,
+        run.current_node_key,
+        node.node_key,
+      );
+      if (!advanced) {
+        await logEvent(db, run.id, "error", node.node_key, {
+          reason: "lost_race_during_advance",
+        });
+      }
+      return { outcome: "advanced" };
+    }
+    if (node.node_type === "checkout") {
+      const { ended } = await sendCheckoutAndSuspend(db, run, node);
+      if (ended) {
+        return { outcome: "completed" };
+      }
+      const advanced = await advanceCurrentNodeKey(
+        db,
+        run.id,
+        run.current_node_key,
+        node.node_key,
+      );
+      if (!advanced) {
+        await logEvent(db, run.id, "error", node.node_key, {
+          reason: "lost_race_during_advance",
+        });
+      }
+      return { outcome: "advanced" };
+    }
     if (node.node_type === "handoff") {
       await executeHandoff(db, run, node);
       return { outcome: "handed_off" };
@@ -1020,6 +1497,90 @@ async function handleReplyForActiveRun(
         matched = cfg.next_node_key;
       }
     }
+  } else if (
+    message.kind === "interactive_reply" &&
+    currentNode.node_type === "show_catalog"
+  ) {
+    const cfg = currentNode.config as unknown as ShowCatalogNodeConfig;
+    if (message.reply_id === CATALOG_CHECKOUT_REPLY_ID) {
+      matched = cfg.next_node_key;
+    } else {
+      const added = await addCatalogItemToCart(db, {
+        accountId: run.account_id,
+        contactId: run.contact_id!,
+        conversationId: run.conversation_id,
+        catalogItemId: message.reply_id,
+      });
+      // Loop — re-send the same node so the customer sees the updated
+      // cart total and can keep browsing. A stale/tampered reply_id
+      // (added === null) falls through to the fallback policy below,
+      // same as an unrecognized send_buttons/send_list tap.
+      if (added) matched = currentNode.node_key;
+    }
+  } else if (
+    message.kind === "interactive_reply" &&
+    currentNode.node_type === "checkout"
+  ) {
+    const cfg = currentNode.config as unknown as CheckoutNodeConfig;
+    if (message.reply_id === CHECKOUT_FINALIZE_REPLY_ID) {
+      const { data: contact } = await db
+        .from("contacts")
+        .select("cpf_cnpj")
+        .eq("id", run.contact_id!)
+        .maybeSingle();
+      const cpfOnFile = (contact as { cpf_cnpj?: string | null } | null)?.cpf_cnpj;
+      if (cpfOnFile) {
+        await createOrderFromCart(db, run, cfg);
+        matched = cfg.next_node_key;
+      } else {
+        // Ask once, suspend WITHOUT re-sending the cart list — the
+        // next TEXT reply is captured by the branch below.
+        try {
+          await engineSendText({
+            accountId: run.account_id,
+            userId: run.user_id,
+            conversationId: run.conversation_id!,
+            contactId: run.contact_id!,
+            text: interpolateVars(cfg.cpf_cnpj_prompt || DEFAULT_CPF_PROMPT, run.vars),
+          });
+        } catch (err) {
+          await logEvent(db, run.id, "error", currentNode.node_key, {
+            reason: "cpf_prompt_send_failed",
+            detail: err instanceof Error ? err.message : String(err),
+          });
+        }
+        const newVars = { ...run.vars, __checkout_awaiting_cpf: true };
+        await db.from("flow_runs").update({ vars: newVars }).eq("id", run.id);
+        run.vars = newVars;
+        return { consumed: true, flow_run_id: run.id, outcome: "advanced" };
+      }
+    } else {
+      const added = await addCatalogItemToCart(db, {
+        accountId: run.account_id,
+        contactId: run.contact_id!,
+        conversationId: run.conversation_id,
+        catalogItemId: message.reply_id,
+      });
+      if (added) matched = currentNode.node_key;
+    }
+  } else if (
+    message.kind === "text" &&
+    currentNode.node_type === "checkout" &&
+    run.vars.__checkout_awaiting_cpf === true
+  ) {
+    const cfg = currentNode.config as unknown as CheckoutNodeConfig;
+    const cpf = message.text.trim();
+    if (cpf.length > 0) {
+      await db.from("contacts").update({ cpf_cnpj: cpf }).eq("id", run.contact_id!);
+      const newVars = { ...run.vars };
+      delete newVars.__checkout_awaiting_cpf;
+      await db.from("flow_runs").update({ vars: newVars }).eq("id", run.id);
+      run.vars = newVars;
+      await createOrderFromCart(db, run, cfg);
+      matched = cfg.next_node_key;
+    }
+    // Empty text → falls through to the fallback/reprompt policy,
+    // which re-sends the same cpf_cnpj_prompt (see below).
   }
 
   if (matched) {
@@ -1087,6 +1648,28 @@ async function handleReplyForActiveRun(
           reason: "reprompt_send_failed",
           detail: err instanceof Error ? err.message : String(err),
         });
+      }
+    } else if (currentNode.node_type === "show_catalog") {
+      await sendCatalogAndSuspend(db, run, currentNode);
+    } else if (currentNode.node_type === "checkout") {
+      if (run.vars.__checkout_awaiting_cpf === true) {
+        const cfg = currentNode.config as unknown as CheckoutNodeConfig;
+        try {
+          await engineSendText({
+            accountId: run.account_id,
+            userId: run.user_id,
+            conversationId: run.conversation_id!,
+            contactId: run.contact_id!,
+            text: interpolateVars(cfg.cpf_cnpj_prompt || DEFAULT_CPF_PROMPT, run.vars),
+          });
+        } catch (err) {
+          await logEvent(db, run.id, "error", currentNode.node_key, {
+            reason: "reprompt_send_failed",
+            detail: err instanceof Error ? err.message : String(err),
+          });
+        }
+      } else {
+        await sendCheckoutAndSuspend(db, run, currentNode);
       }
     }
     return { consumed: true, flow_run_id: run.id, outcome: "fallback_fired" };

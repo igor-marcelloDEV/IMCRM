@@ -46,6 +46,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { createClient } from "@/lib/supabase/client";
 import { uploadAccountMedia, MEDIA_MAX_BYTES } from "@/lib/storage/upload-media";
 import { slugify, type BuilderNode } from "../shared";
 import { NextNodeRow, NodeKeySelect, TextRow } from "./fields";
@@ -202,6 +203,28 @@ export function NodeConfigForm({
           value={(cfg as { note?: string }).note ?? ""}
           onChange={(v) => onUpdateConfig({ note: v })}
           rows={2}
+        />
+      );
+
+    case "show_catalog":
+      return (
+        <ShowCatalogForm
+          cfg={cfg as ShowCatalogCfg}
+          allNodes={allNodes}
+          currentKey={node.node_key}
+          onUpdateConfig={onUpdateConfig}
+          t={t}
+        />
+      );
+
+    case "checkout":
+      return (
+        <CheckoutForm
+          cfg={cfg as CheckoutCfg}
+          allNodes={allNodes}
+          currentKey={node.node_key}
+          onUpdateConfig={onUpdateConfig}
+          t={t}
         />
       );
 
@@ -1058,6 +1081,191 @@ function SendMediaForm({
         currentKey={currentKey}
         onChange={(v) => onUpdateConfig({ next_node_key: v })}
         label={t("advanceAfterSending")}
+      />
+    </>
+  );
+}
+
+// ============================================================
+// show_catalog — no product list to author here: the engine builds
+// it from the account's live catalog_items at send time (Settings →
+// Catalog). This form only sets the intro copy + where "Fechar
+// pedido" leads.
+// ============================================================
+
+interface ShowCatalogCfg {
+  intro_text?: string;
+  next_node_key?: string;
+}
+
+function ShowCatalogForm({
+  cfg,
+  allNodes,
+  currentKey,
+  onUpdateConfig,
+  t,
+}: {
+  cfg: ShowCatalogCfg;
+  allNodes: BuilderNode[];
+  currentKey: string;
+  onUpdateConfig: (patch: Record<string, unknown>) => void;
+  t: ReturnType<typeof useTranslations>;
+}) {
+  return (
+    <>
+      <p className="rounded-md border border-dashed border-border bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
+        {t("showCatalogHelp")}
+      </p>
+      <TextRow
+        label={t("introTextLabel")}
+        value={cfg.intro_text ?? ""}
+        onChange={(v) => onUpdateConfig({ intro_text: v })}
+        rows={2}
+      />
+      <NextNodeRow
+        value={cfg.next_node_key ?? ""}
+        allNodes={allNodes}
+        currentKey={currentKey}
+        onChange={(v) => onUpdateConfig({ next_node_key: v })}
+        label={t("checkoutRowLeadsTo")}
+      />
+    </>
+  );
+}
+
+// ============================================================
+// checkout — cart review + upsell + order creation. Pipeline/stage
+// pickers mirror the automations builder's create_deal step (same
+// direct RLS-scoped read, no dedicated API route for pipelines).
+// ============================================================
+
+interface CheckoutCfg {
+  pipeline_id?: string;
+  stage_id?: string;
+  cpf_cnpj_prompt?: string;
+  next_node_key?: string;
+}
+
+interface PipelineOption {
+  id: string;
+  name: string;
+}
+interface PipelineStageOption {
+  id: string;
+  name: string;
+  pipeline_id: string;
+  position: number;
+}
+
+function usePipelinesAndStages(): {
+  pipelines: PipelineOption[];
+  stages: PipelineStageOption[];
+} {
+  const [pipelines, setPipelines] = useState<PipelineOption[]>([]);
+  const [stages, setStages] = useState<PipelineStageOption[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    const supabase = createClient();
+    (async () => {
+      const [pipelinesRes, stagesRes] = await Promise.all([
+        supabase.from("pipelines").select("id, name").order("name"),
+        supabase
+          .from("pipeline_stages")
+          .select("id, name, pipeline_id, position")
+          .order("position"),
+      ]);
+      if (cancelled) return;
+      setPipelines((pipelinesRes.data as PipelineOption[] | null) ?? []);
+      setStages((stagesRes.data as PipelineStageOption[] | null) ?? []);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  return { pipelines, stages };
+}
+
+function CheckoutForm({
+  cfg,
+  allNodes,
+  currentKey,
+  onUpdateConfig,
+  t,
+}: {
+  cfg: CheckoutCfg;
+  allNodes: BuilderNode[];
+  currentKey: string;
+  onUpdateConfig: (patch: Record<string, unknown>) => void;
+  t: ReturnType<typeof useTranslations>;
+}) {
+  const { pipelines, stages } = usePipelinesAndStages();
+  const stageOptions = stages.filter((s) => s.pipeline_id === cfg.pipeline_id);
+
+  return (
+    <>
+      <p className="rounded-md border border-dashed border-border bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
+        {t("checkoutHelp")}
+      </p>
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+        <div>
+          <label className="mb-1 block text-xs text-muted-foreground">{t("pipelineLabel")}</label>
+          <Select
+            value={cfg.pipeline_id || "__none__"}
+            onValueChange={(v) =>
+              onUpdateConfig({
+                pipeline_id: v === "__none__" ? "" : v,
+                // Changing pipeline invalidates whichever stage was
+                // picked — it almost certainly belongs to the old one.
+                stage_id: "",
+              })
+            }
+          >
+            <SelectTrigger className="bg-muted">
+              <SelectValue placeholder={t("pickPipeline")} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__none__">{t("pickPipeline")}</SelectItem>
+              {pipelines.map((p) => (
+                <SelectItem key={p.id} value={p.id}>
+                  {p.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div>
+          <label className="mb-1 block text-xs text-muted-foreground">{t("stageLabel")}</label>
+          <Select
+            value={cfg.stage_id || "__none__"}
+            onValueChange={(v) => onUpdateConfig({ stage_id: v === "__none__" ? "" : v })}
+          >
+            <SelectTrigger className="bg-muted" disabled={!cfg.pipeline_id}>
+              <SelectValue placeholder={t("pickStage")} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__none__">{t("pickStage")}</SelectItem>
+              {stageOptions.map((s) => (
+                <SelectItem key={s.id} value={s.id}>
+                  {s.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+      <p className="text-[10px] text-muted-foreground">{t("dealCreatedHint")}</p>
+      <TextRow
+        label={t("cpfPromptLabel")}
+        value={cfg.cpf_cnpj_prompt ?? ""}
+        onChange={(v) => onUpdateConfig({ cpf_cnpj_prompt: v })}
+        rows={2}
+      />
+      <NextNodeRow
+        value={cfg.next_node_key ?? ""}
+        allNodes={allNodes}
+        currentKey={currentKey}
+        onChange={(v) => onUpdateConfig({ next_node_key: v })}
+        label={t("afterOrderCreated")}
       />
     </>
   );

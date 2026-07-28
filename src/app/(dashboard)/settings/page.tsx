@@ -14,6 +14,7 @@ import { AppearancePanel } from '@/components/settings/appearance-panel';
 import { WhatsAppConnectionPanel } from '@/components/settings/whatsapp-connection-panel';
 import { TemplateManager } from '@/components/settings/template-manager';
 import { QuickRepliesManager } from '@/components/settings/quick-replies-manager';
+import { CatalogManager } from '@/components/settings/catalog-manager';
 import { FieldsAndTagsPanel } from '@/components/settings/fields-and-tags-panel';
 import { DealsSettings } from '@/components/settings/deals-settings';
 import { MembersTab } from '@/components/settings/members-tab';
@@ -77,6 +78,7 @@ function SettingsPageInner() {
     whatsapp: <WhatsAppConnectionPanel />,
     templates: <TemplateManager />,
     'quick-replies': <QuickRepliesManager />,
+    catalog: <CatalogManager />,
     fields: <FieldsAndTagsPanel />,
     deals: <DealsSettings />,
     members: <MembersTab />,

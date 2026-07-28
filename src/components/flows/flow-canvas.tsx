@@ -701,6 +701,8 @@ const ADD_NODE_TYPES: NodeType[] = [
   'condition',
   'set_tag',
   'handoff',
+  'show_catalog',
+  'checkout',
   'end',
 ];
 

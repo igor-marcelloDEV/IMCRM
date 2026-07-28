@@ -592,6 +592,8 @@ function AddNodeButton({ onAdd, t }: { onAdd: (type: NodeType) => void; t: Retur
     'condition',
     'set_tag',
     'handoff',
+    'show_catalog',
+    'checkout',
     'end',
   ];
   return (

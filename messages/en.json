@@ -1372,10 +1372,22 @@
         "filenamePlaceholder": "invoice.pdf",
         "advanceAfterSending": "After sending, advance to",
         "pickNextNode": "Pick a next node…",
-        "none": "— None —"
+        "none": "— None —",
+        "showCatalogHelp": "The product list itself isn't authored here — it's built live from Settings → Catalog every time this node sends.",
+        "introTextLabel": "Intro text (shown above the product list)",
+        "checkoutRowLeadsTo": "\"Fechar pedido\" row advances to",
+        "checkoutHelp": "Shows the cart + upsell suggestions, asks for CPF/CNPJ once if needed, then creates the order and a linked Deal.",
+        "pipelineLabel": "Pipeline",
+        "pickPipeline": "Pick a pipeline…",
+        "stageLabel": "Stage",
+        "pickStage": "Pick a stage…",
+        "dealCreatedHint": "A Deal is created here with the order total as its value — closing the sale is dragging it to a won stage, same as any other deal.",
+        "cpfPromptLabel": "CPF/CNPJ prompt (asked once, only if not already on file)",
+        "afterOrderCreated": "After the order is created, advance to"
       },
       "categories": {
         "messaging": "Messaging",
+        "commerce": "Catalog & orders",
         "logic": "Logic & data",
         "flow": "Flow control"
       },
@@ -1415,6 +1427,14 @@
         "handoff": {
           "label": "Handoff to agent",
           "blurb": "Hands the conversation to a human"
+        },
+        "show_catalog": {
+          "label": "Show catalog",
+          "blurb": "Sends the live product/service catalog; taps add to cart"
+        },
+        "checkout": {
+          "label": "Checkout",
+          "blurb": "Reviews the cart, offers upsells, creates the order"
         },
         "end": {
           "label": "End",
@@ -1496,6 +1516,16 @@
           "needsTag": "Set-tag needs a tag to apply.",
           "needsNext": "Set-tag must point to a next node.",
           "nextMissing": "Set-tag points to non-existent node \"{key}\"."
+        },
+        "showCatalog": {
+          "needsNext": "Show-catalog's checkout row must point to a next node.",
+          "nextMissing": "Show-catalog points to non-existent node \"{key}\"."
+        },
+        "checkout": {
+          "needsPipeline": "Checkout needs a pipeline to file the order's deal under.",
+          "needsStage": "Checkout needs a pipeline stage for the new deal.",
+          "needsNext": "Checkout must point to a next node.",
+          "nextMissing": "Checkout points to non-existent node \"{key}\"."
         }
       }
     },
@@ -1528,7 +1558,10 @@
       "modeAdd": "Add",
       "modeRemove": "Remove",
       "tagPicked": "{mode} tag {tag}…",
-      "tagNone": "{mode} tag (none picked)"
+      "tagNone": "{mode} tag (none picked)",
+      "liveCatalog": "Live catalog from Settings → Catalog",
+      "checkoutConfigured": "Cart review + order creation",
+      "checkoutNoPipeline": "Pick a pipeline to file the order under"
     }
   },
   "SignupPage": {
@@ -2033,6 +2066,41 @@
       "toastCreated": "Quick reply created.",
       "toastDeleteFailed": "Couldn't delete the quick reply."
     },
+    "catalog": {
+      "title": "Catalog",
+      "description": "Products or services your Flows can offer during a WhatsApp conversation — with photo/video, price, and optional upsell suggestions.",
+      "newItem": "New item",
+      "empty": "No catalog items yet. Add one to start selling through a Flow.",
+      "editTitle": "Edit item",
+      "newTitle": "New item",
+      "nameLabel": "Name",
+      "namePlaceholder": "e.g. Haircut",
+      "descriptionLabel": "Description",
+      "descriptionPlaceholder": "Shown to the customer while browsing",
+      "priceLabel": "Price",
+      "mediaLabel": "Photo or video",
+      "clickToUpload": "Click to upload",
+      "uploading": "Uploading...",
+      "removeFile": "Remove file",
+      "fileUploaded": "File uploaded",
+      "toastUploadFailed": "Upload failed",
+      "toastMediaFileTooLarge": "File too large ({size} MB)",
+      "upsellLabel": "Suggest as upsell",
+      "upsellHint": "Offered as an extra at checkout to raise the order total.",
+      "upsellBadge": "Upsell",
+      "activeLabel": "Active",
+      "activeHint": "Inactive items don't appear in the catalog sent to customers.",
+      "inactiveBadge": "Inactive",
+      "cancel": "Cancel",
+      "save": "Save",
+      "deleteConfirm": "Delete this item?",
+      "toastNameRequired": "Give the item a name.",
+      "toastPriceInvalid": "Enter a valid price.",
+      "toastSaveFailed": "Couldn't save the item.",
+      "toastUpdated": "Item updated.",
+      "toastCreated": "Item created.",
+      "toastDeleteFailed": "Couldn't delete the item."
+    },
     "roles": {
       "admin": "Admin",
       "adminHint": "Manage members + everything",
@@ -2172,6 +2240,7 @@
       "whatsapp": "WhatsApp",
       "templates": "Templates",
       "quick-replies": "Quick replies",
+      "catalog": "Catalog",
       "fields": "Fields & tags",
       "deals": "Deals & currency",
       "members": "Team members",
