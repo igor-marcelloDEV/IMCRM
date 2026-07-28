@@ -33,6 +33,8 @@
  */
 
 import { supabaseAdmin } from "./admin-client";
+import { createOrGetCustomer, createPixPayment } from "@/lib/billing/asaas";
+import { getTenantAsaasConfig } from "@/lib/orders/tenant-asaas";
 import {
   engineSendInteractiveButtons,
   engineSendInteractiveList,
@@ -778,6 +780,89 @@ async function createOrderFromCart(
 
   await db.from("carts").update({ status: "checked_out" }).eq("id", summary.cartId);
   return { orderId };
+}
+
+/**
+ * Charges the order via the TENANT's own Asaas account (PIX only —
+ * matches the platform billing client's own rationale: PIX has no
+ * recurring mandate in Brazil, so a one-off charge per order is the
+ * correct shape here regardless). Degrades gracefully at every step —
+ * a tenant who hasn't configured Asaas yet, or whose key has gone
+ * bad, still gets a registered order; they just don't get an
+ * automated charge, and the checkout node's own `next_node_key`
+ * message is what tells the customer what happens next.
+ *
+ * QR code image is intentionally NOT sent — Asaas returns it as a
+ * base64 PNG (`encodedImage`), and WhatsApp media sends need a
+ * fetchable URL, not raw bytes. The copy-paste PIX payload (`payload`)
+ * covers the same use case without needing to host an image.
+ */
+async function chargeOrderViaAsaas(
+  db: AdminClient,
+  run: FlowRunRow,
+  orderId: string,
+): Promise<void> {
+  const config = await getTenantAsaasConfig(db, run.account_id);
+  if (!config) return;
+
+  const { data: order } = await db
+    .from("orders")
+    .select("total_cents, currency")
+    .eq("id", orderId)
+    .maybeSingle();
+  const { data: contact } = await db
+    .from("contacts")
+    .select("name, email, phone, cpf_cnpj")
+    .eq("id", run.contact_id!)
+    .maybeSingle();
+  const typedOrder = order as { total_cents: number; currency: string } | null;
+  const typedContact =
+    (contact as { name: string | null; email: string | null; phone: string; cpf_cnpj: string | null } | null);
+  if (!typedOrder || !typedContact?.cpf_cnpj) return;
+
+  try {
+    const customer = await createOrGetCustomer({
+      config,
+      name: typedContact.name || "Cliente WhatsApp",
+      // Asaas requires an email to create a customer; WhatsApp contacts
+      // frequently don't have one captured. A per-contact placeholder
+      // keeps customer records distinct without blocking the charge.
+      email: typedContact.email || `contato-${run.contact_id}@sememail.imcrm.app`,
+      phone: typedContact.phone,
+      cpfCnpj: typedContact.cpf_cnpj,
+      externalReference: run.contact_id!,
+    });
+
+    const dueDate = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const { payment, qrCode } = await createPixPayment({
+      config,
+      customerId: customer.id,
+      value: typedOrder.total_cents / 100,
+      dueDate,
+      description: "Pedido via WhatsApp",
+      externalReference: orderId,
+    });
+
+    await db
+      .from("orders")
+      .update({ gateway_customer_id: customer.id, gateway_payment_id: payment.id })
+      .eq("id", orderId);
+
+    await engineSendText({
+      accountId: run.account_id,
+      userId: run.user_id,
+      conversationId: run.conversation_id!,
+      contactId: run.contact_id!,
+      text: `Pra confirmar seu pedido, pague via PIX (copia e cola):\n\n${qrCode.payload}\n\nValor: ${formatCents(typedOrder.total_cents, typedOrder.currency)}`,
+    });
+  } catch (err) {
+    // Bad/expired key, Asaas outage, etc. — don't strand the customer
+    // without any response; the order itself already exists.
+    await logEvent(db, run.id, "error", "checkout", {
+      reason: "asaas_charge_failed",
+      detail: err instanceof Error ? err.message : String(err),
+    });
+  }
 }
 
 /**
@@ -1530,7 +1615,8 @@ async function handleReplyForActiveRun(
         .maybeSingle();
       const cpfOnFile = (contact as { cpf_cnpj?: string | null } | null)?.cpf_cnpj;
       if (cpfOnFile) {
-        await createOrderFromCart(db, run, cfg);
+        const created = await createOrderFromCart(db, run, cfg);
+        if (created) await chargeOrderViaAsaas(db, run, created.orderId);
         matched = cfg.next_node_key;
       } else {
         // Ask once, suspend WITHOUT re-sending the cart list — the
@@ -1576,7 +1662,8 @@ async function handleReplyForActiveRun(
       delete newVars.__checkout_awaiting_cpf;
       await db.from("flow_runs").update({ vars: newVars }).eq("id", run.id);
       run.vars = newVars;
-      await createOrderFromCart(db, run, cfg);
+      const created = await createOrderFromCart(db, run, cfg);
+      if (created) await chargeOrderViaAsaas(db, run, created.orderId);
       matched = cfg.next_node_key;
     }
     // Empty text → falls through to the fallback/reprompt policy,
