@@ -164,6 +164,19 @@ function validateOne(step: StepLike, path: string, issues: ValidationIssue[]): v
     case 'close_conversation':
       // No config required.
       break
+    case 'send_instagram_dm':
+      if (c.message_type === 'document') {
+        if (!nonEmpty(c.media_url)) {
+          issues.push({
+            path: `${path}.media_url`,
+            message: 'media URL is required',
+            messageKey: 'sendInstagramDm.mediaUrlRequired',
+          })
+        }
+      } else if (!nonEmpty(c.text)) {
+        issues.push({ path: `${path}.text`, message: 'message text is required', messageKey: 'sendMessage.textRequired' })
+      }
+      break
     default:
       issues.push({ path, message: `unknown step type: ${step.step_type}`, messageKey: 'unknownStepType', params: { type: step.step_type } })
   }
@@ -203,6 +216,20 @@ export function validateTriggerForActivation(
   } else if (triggerType === 'tag_added') {
     if (!nonEmpty(cfg.tag_id)) {
       issues.push({ path: 'trigger.tag_id', message: 'tag is required', messageKey: 'trigger.tagRequired' })
+    }
+  } else if (triggerType === 'instagram_comment_keyword') {
+    const k = cfg.keywords
+    if (!Array.isArray(k) || k.length === 0) {
+      issues.push({ path: 'trigger.keywords', message: 'at least one keyword is required', messageKey: 'trigger.keywordRequired' })
+    } else if (k.some((v) => typeof v !== 'string' || v.trim() === '')) {
+      issues.push({ path: 'trigger.keywords', message: 'keywords cannot be empty strings', messageKey: 'trigger.keywordEmpty' })
+    }
+    if (cfg.post_filter === 'specific' && !nonEmpty(cfg.post_id)) {
+      issues.push({
+        path: 'trigger.post_id',
+        message: 'a post id is required when scoping to a specific post',
+        messageKey: 'trigger.igPostIdRequired',
+      })
     }
   } else if (triggerType === 'interactive_reply') {
     const ids = cfg.reply_ids

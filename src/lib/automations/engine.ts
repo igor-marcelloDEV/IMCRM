@@ -6,12 +6,14 @@ import type {
   ConditionStepConfig,
   KeywordMatchTriggerConfig,
   InteractiveReplyTriggerConfig,
+  InstagramCommentKeywordTriggerConfig,
   TagTriggerConfig,
   SendMessageStepConfig,
   SendButtonsStepConfig,
   SendListStepConfig,
   SendTemplateStepConfig,
   SendWebhookStepConfig,
+  SendInstagramDmStepConfig,
   TagStepConfig,
   UpdateContactFieldStepConfig,
   WaitStepConfig,
@@ -24,6 +26,12 @@ import { MAX_TAG_CHAIN_DEPTH, getTagChainDepth } from '@/lib/contacts/tag-chain'
 import { engineSendText, engineSendTemplate, engineSendInteractive } from './meta-send'
 import { validateInteractivePayload } from '@/lib/whatsapp/interactive'
 import { isDeliverableUrl } from '@/lib/webhooks/ssrf'
+import { decrypt } from '@/lib/whatsapp/encryption'
+import {
+  sendPrivateReplyToComment,
+  sendInstagramText,
+  sendInstagramDocument,
+} from '@/lib/instagram/graph-api'
 
 // ------------------------------------------------------------
 // Public API
@@ -251,7 +259,13 @@ interface ExecuteArgs {
 }
 
 /** Step types that put a message in front of the customer. */
-const SEND_STEP_TYPES = new Set(['send_message', 'send_buttons', 'send_list', 'send_template'])
+const SEND_STEP_TYPES = new Set([
+  'send_message',
+  'send_buttons',
+  'send_list',
+  'send_template',
+  'send_instagram_dm',
+])
 
 async function executeStepsFrom(args: ExecuteArgs): Promise<boolean> {
   const db = supabaseAdmin()
@@ -444,6 +458,71 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
         params,
       })
       return `template sent via Meta (${whatsapp_message_id})`
+    }
+
+    case 'send_instagram_dm': {
+      const cfg = step.step_config as SendInstagramDmStepConfig
+      if (!args.contactId) throw new Error('send_instagram_dm needs a contact')
+
+      const { data: igConfig } = await db
+        .from('instagram_configs')
+        .select('page_id, instagram_business_account_id, access_token')
+        .eq('account_id', args.automation.account_id)
+        .maybeSingle()
+      if (!igConfig) throw new Error('Instagram não está conectado nesta conta')
+
+      const { data: contact } = await db
+        .from('contacts')
+        .select('instagram_scoped_id')
+        .eq('id', args.contactId)
+        .eq('account_id', args.automation.account_id)
+        .maybeSingle()
+      const igsid = contact?.instagram_scoped_id as string | undefined
+      if (!igsid) throw new Error('Este contato não tem uma identidade do Instagram')
+
+      const accessToken = decrypt(igConfig.access_token)
+      // Only set when this run started from a comment trigger (see
+      // ingestInstagramComment) — the ONLY case where Meta allows a
+      // cold first-touch send, via the private-reply endpoint scoped
+      // to that exact comment.
+      const commentId = args.context.vars?.comment_id as string | undefined
+
+      if (cfg.message_type === 'document') {
+        if (commentId) {
+          throw new Error(
+            'Uma DM de documento não pode ser a primeira resposta a um comentário (a API da Meta só permite texto na resposta privada) — envie um texto antes.',
+          )
+        }
+        if (!cfg.media_url) throw new Error('send_instagram_dm (document) precisa de media_url')
+        const { messageId } = await sendInstagramDocument({
+          instagramBusinessAccountId: igConfig.instagram_business_account_id,
+          accessToken,
+          recipientId: igsid,
+          mediaUrl: cfg.media_url,
+        })
+        return `document DM sent via Instagram (${messageId})`
+      }
+
+      const text = interpolate(cfg.text || '', args)
+      if (!text.trim()) throw new Error('send_instagram_dm has empty text')
+
+      if (commentId) {
+        const { messageId } = await sendPrivateReplyToComment({
+          pageId: igConfig.page_id,
+          accessToken,
+          commentId,
+          text,
+        })
+        return `private reply sent via Instagram (${messageId})`
+      }
+
+      const { messageId } = await sendInstagramText({
+        instagramBusinessAccountId: igConfig.instagram_business_account_id,
+        accessToken,
+        recipientId: igsid,
+        text,
+      })
+      return `DM sent via Instagram (${messageId})`
     }
 
     case 'add_tag': {
@@ -702,6 +781,22 @@ export function triggerMatches(automation: Automation, ctx: AutomationContext | 
       return false
     }
     return cfg.reply_ids.includes(replyId)
+  }
+
+  if (automation.trigger_type === 'instagram_comment_keyword') {
+    const cfg = automation.trigger_config as InstagramCommentKeywordTriggerConfig
+    if (!cfg?.keywords || cfg.keywords.length === 0) return false
+    const text = (ctx?.message_text ?? '').toString()
+    if (!text) return false
+    if (cfg.post_filter === 'specific' && cfg.post_id) {
+      const mediaId = ctx?.vars?.media_id
+      if (mediaId !== cfg.post_id) return false
+    }
+    const haystack = cfg.case_sensitive ? text : text.toLowerCase()
+    return cfg.keywords.some((raw) => {
+      const k = cfg.case_sensitive ? raw : raw.toLowerCase()
+      return cfg.match_type === 'exact' ? haystack === k : haystack.includes(k)
+    })
   }
 
   if (automation.trigger_type === 'tag_added') {

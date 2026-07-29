@@ -51,6 +51,10 @@ export const TRIGGER_META: Record<AutomationTriggerType, TriggerMeta> = {
     label: 'Order Paid',
     pillClass: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300',
   },
+  instagram_comment_keyword: {
+    label: 'Instagram Comment Keyword',
+    pillClass: 'border-fuchsia-500/30 bg-fuchsia-500/10 text-fuchsia-300',
+  },
 }
 
 export function triggerMeta(t: AutomationTriggerType | string): TriggerMeta {

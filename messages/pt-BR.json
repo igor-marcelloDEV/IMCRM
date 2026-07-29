@@ -1032,7 +1032,8 @@
         "wait": "Aguardar",
         "condition": "Condição (Se/Senão)",
         "send_webhook": "Enviar webhook",
-        "close_conversation": "Fechar conversa"
+        "close_conversation": "Fechar conversa",
+        "send_instagram_dm": "Enviar DM no Instagram"
       },
       "triggers": {
         "new_message_received": {
@@ -1070,6 +1071,10 @@
         "order_paid": {
           "label": "Pedido pago",
           "hint": "Quando o pagamento de um pedido do checkout é confirmado"
+        },
+        "instagram_comment_keyword": {
+          "label": "Palavra-chave em comentário do Instagram",
+          "hint": "Um comentário no seu post do Instagram contém palavra(s)-chave específica(s) — envia uma DM automática"
         }
       },
       "trigger": "Gatilho",
@@ -1176,7 +1181,18 @@
         "matchType": "Tipo de correspondência",
         "matchContains": "Contém",
         "matchExact": "Exata",
-        "closeConversationHint": "Define o status da conversa como \"fechada\". Não requer configuração."
+        "closeConversationHint": "Define o status da conversa como \"fechada\". Não requer configuração.",
+        "igPostFilter": "Quais posts",
+        "igPostFilterAll": "Qualquer post",
+        "igPostFilterSpecific": "Um post específico",
+        "igPostId": "ID do post",
+        "igPostIdHint": "O media id do post (via API/URL do Instagram)",
+        "igMessageType": "Tipo de mensagem",
+        "igMessageTypeText": "Texto",
+        "igMessageTypeDocument": "Documento",
+        "igMediaUrl": "URL do documento",
+        "igFilename": "Nome do arquivo",
+        "igDocumentHint": "Uma DM de documento não pode ser a primeira resposta a um comentário (a API de resposta privada do Instagram só aceita texto) — envie uma etapa de texto antes."
       }
     },
     "validation": {
@@ -1217,6 +1233,9 @@
           "urlMustBeHttp": "A URL do webhook precisa usar http ou https.",
           "urlInvalid": "A URL do webhook não é válida."
         },
+        "sendInstagramDm": {
+          "mediaUrlRequired": "A URL do documento é obrigatória."
+        },
         "trigger": {
           "keywordRequired": "Pelo menos uma palavra-chave é obrigatória.",
           "keywordEmpty": "As palavras-chave não podem estar vazias.",
@@ -1224,7 +1243,8 @@
           "scheduleRequired": "Um agendamento é obrigatório.",
           "tagRequired": "Uma tag é obrigatória.",
           "replyIdRequired": "Pelo menos um reply id é obrigatório.",
-          "replyIdEmpty": "Os reply ids não podem estar vazios."
+          "replyIdEmpty": "Os reply ids não podem estar vazios.",
+          "igPostIdRequired": "Um post id é obrigatório ao restringir a um post específico."
         }
       }
     }
@@ -2307,6 +2327,37 @@
       "toastSwitchFailed": "Falha ao trocar a forma de conexão",
       "notConfiguredHint": "O worker do WhatsApp Web ainda não está configurado neste ambiente. Peça para o administrador definir WHATSAPP_WORKER_URL e WORKER_API_SECRET — veja whatsapp-worker/README.md."
     },
+    "instagram": {
+      "title": "Instagram",
+      "description": "Conecte uma Conta Comercial do Instagram (via a Página do Facebook vinculada) para enviar DM automática pra quem comentar uma palavra-chave, e mandar documentos — veja a aba Automações, gatilho \"Palavra-chave em comentário do Instagram\".",
+      "adminOnlyConfig": "Somente admins e proprietários podem alterar a configuração do Instagram.",
+      "loading": "Carregando…",
+      "loadFailed": "Falha ao carregar a configuração do Instagram",
+      "connection": "Conexão",
+      "connectionDesc": "Exige aprovação do App Review da Meta antes de funcionar para clientes de verdade — veja o guia de configuração. Você pode testar com uma conta adicionada ao seu App da Meta enquanto isso.",
+      "statusConnected": "Conectado",
+      "statusError": "Erro",
+      "pageId": "ID da Página do Facebook",
+      "igAccountId": "ID da Conta Comercial do Instagram",
+      "accessToken": "Token de acesso da Página",
+      "accessTokenHint": "Um token de acesso de longa duração da Página, com permissões de mensagens do Instagram (Graph API Explorer ou uma troca de token no servidor).",
+      "verifyToken": "Verify token",
+      "verifyTokenPlaceholder": "Qualquer string que você também vai colocar nas configurações de webhook do App da Meta",
+      "verifyTokenHint": "Precisa ser exatamente igual ao que você digitar como Verify Token ao inscrever esta URL de webhook no painel do seu App da Meta.",
+      "webhookUrl": "URL do webhook",
+      "webhookUrlHint": "Cole isso na inscrição de webhook do Instagram do seu App da Meta (campos comments + messages).",
+      "webhookCopied": "URL do webhook copiada.",
+      "webhookCopyFailed": "Não foi possível copiar a URL do webhook.",
+      "missingIds": "Digite o ID da Página e o ID da Conta Comercial do Instagram.",
+      "missingToken": "Digite o token de acesso.",
+      "missingVerifyToken": "Digite um verify token.",
+      "saveSuccess": "Conexão com o Instagram salva.",
+      "saveFailed": "Falha ao salvar.",
+      "removeSuccess": "Instagram desconectado.",
+      "removeFailed": "Falha ao desconectar.",
+      "remove": "Desconectar",
+      "save": "Salvar"
+    },
     "sections": {
       "overview": "Visão geral",
       "profile": "Seu perfil",
@@ -2316,6 +2367,7 @@
       "templates": "Modelos",
       "quick-replies": "Respostas rápidas",
       "catalog": "Catálogo",
+      "instagram": "Instagram",
       "payments": "Pagamentos",
       "fields": "Campos e etiquetas",
       "deals": "Negócios e moeda",

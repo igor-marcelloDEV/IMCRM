@@ -1,4 +1,5 @@
 import {
+  Camera,
   Coins,
   CreditCard,
   FileText,
@@ -32,6 +33,7 @@ export const SETTINGS_SECTIONS = [
   'templates',
   'quick-replies',
   'catalog',
+  'instagram',
   'payments',
   'fields',
   'deals',
@@ -60,6 +62,7 @@ export const SECTION_META: Record<SettingsSection, SectionMeta> = {
   templates: { id: 'templates', label: 'Templates', icon: FileText, group: 'workspace' },
   'quick-replies': { id: 'quick-replies', label: 'Quick replies', icon: Zap, group: 'workspace' },
   catalog: { id: 'catalog', label: 'Catalog', icon: Package, group: 'workspace' },
+  instagram: { id: 'instagram', label: 'Instagram', icon: Camera, group: 'workspace' },
   payments: { id: 'payments', label: 'Payments', icon: CreditCard, group: 'workspace' },
   fields: { id: 'fields', label: 'Fields & tags', icon: Tags, group: 'workspace' },
   deals: { id: 'deals', label: 'Deals & currency', icon: Coins, group: 'workspace' },

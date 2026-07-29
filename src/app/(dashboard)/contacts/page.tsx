@@ -598,7 +598,7 @@ export default function ContactsPage() {
                     <Checkbox
                       checked={selected.has(contact.id)}
                       onCheckedChange={() => toggleSelect(contact.id)}
-                      aria-label={t('selectContactAria', { name: contact.name || contact.phone })}
+                      aria-label={t('selectContactAria', { name: contact.name || contact.phone || '' })}
                     />
                   </TableCell>
                   <TableCell className="text-foreground font-medium">

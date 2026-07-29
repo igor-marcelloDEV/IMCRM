@@ -1032,7 +1032,8 @@
         "wait": "Wait",
         "condition": "Condition (If/Else)",
         "send_webhook": "Send Webhook",
-        "close_conversation": "Close Conversation"
+        "close_conversation": "Close Conversation",
+        "send_instagram_dm": "Send Instagram DM"
       },
       "triggers": {
         "new_message_received": {
@@ -1070,6 +1071,10 @@
         "order_paid": {
           "label": "Order Paid",
           "hint": "When a customer's checkout order is confirmed as paid"
+        },
+        "instagram_comment_keyword": {
+          "label": "Instagram Comment Keyword",
+          "hint": "A comment on your Instagram post contains specific keyword(s) — sends an automatic DM"
         }
       },
       "trigger": "Trigger",
@@ -1176,7 +1181,18 @@
         "matchType": "Match type",
         "matchContains": "Contains",
         "matchExact": "Exact",
-        "closeConversationHint": "Sets the conversation status to \"closed\". No configuration needed."
+        "closeConversationHint": "Sets the conversation status to \"closed\". No configuration needed.",
+        "igPostFilter": "Which posts",
+        "igPostFilterAll": "Any post",
+        "igPostFilterSpecific": "A specific post",
+        "igPostId": "Post id",
+        "igPostIdHint": "The post's media id (from Instagram's API/URL)",
+        "igMessageType": "Message type",
+        "igMessageTypeText": "Text",
+        "igMessageTypeDocument": "Document",
+        "igMediaUrl": "Document URL",
+        "igFilename": "File name",
+        "igDocumentHint": "A document DM can't be the first reply to a comment (Instagram's private-reply API only supports text) — send a text step first."
       }
     },
     "validation": {
@@ -1217,6 +1233,9 @@
           "urlMustBeHttp": "The webhook URL must use http or https.",
           "urlInvalid": "The webhook URL is not a valid URL."
         },
+        "sendInstagramDm": {
+          "mediaUrlRequired": "A document URL is required."
+        },
         "trigger": {
           "keywordRequired": "At least one keyword is required.",
           "keywordEmpty": "Keywords cannot be empty.",
@@ -1224,7 +1243,8 @@
           "scheduleRequired": "A schedule is required.",
           "tagRequired": "A tag is required.",
           "replyIdRequired": "At least one reply id is required.",
-          "replyIdEmpty": "Reply ids cannot be empty."
+          "replyIdEmpty": "Reply ids cannot be empty.",
+          "igPostIdRequired": "A post id is required when scoping to a specific post."
         }
       }
     }
@@ -2307,6 +2327,37 @@
       "toastSwitchFailed": "Failed to switch connection method",
       "notConfiguredHint": "The WhatsApp Web worker isn't configured in this environment yet. Ask your administrator to set WHATSAPP_WORKER_URL and WORKER_API_SECRET — see whatsapp-worker/README.md."
     },
+    "instagram": {
+      "title": "Instagram",
+      "description": "Connect an Instagram Business Account (via its linked Facebook Page) to auto-DM commenters who use a keyword, and send them documents — see the Automations tab for the \"Instagram Comment Keyword\" trigger.",
+      "adminOnlyConfig": "Only admins and owners can change the Instagram configuration.",
+      "loading": "Loading…",
+      "loadFailed": "Failed to load Instagram configuration",
+      "connection": "Connection",
+      "connectionDesc": "Requires Meta App Review approval before it works for real customers — see the setup guide. You can test against an account added to your Meta App in the meantime.",
+      "statusConnected": "Connected",
+      "statusError": "Error",
+      "pageId": "Facebook Page id",
+      "igAccountId": "Instagram Business Account id",
+      "accessToken": "Page access token",
+      "accessTokenHint": "A long-lived Page access token with Instagram messaging permissions (Graph API Explorer or a server-side token exchange).",
+      "verifyToken": "Verify token",
+      "verifyTokenPlaceholder": "Any string you also enter in the Meta App webhook settings",
+      "verifyTokenHint": "Must match exactly what you enter as the Verify Token when subscribing this webhook URL in your Meta App dashboard.",
+      "webhookUrl": "Webhook URL",
+      "webhookUrlHint": "Paste this into your Meta App's Instagram webhook subscription (comments + messages fields).",
+      "webhookCopied": "Webhook URL copied.",
+      "webhookCopyFailed": "Could not copy the webhook URL.",
+      "missingIds": "Enter the Page id and Instagram Business Account id.",
+      "missingToken": "Enter the access token.",
+      "missingVerifyToken": "Enter a verify token.",
+      "saveSuccess": "Instagram connection saved.",
+      "saveFailed": "Failed to save.",
+      "removeSuccess": "Instagram disconnected.",
+      "removeFailed": "Failed to disconnect.",
+      "remove": "Disconnect",
+      "save": "Save"
+    },
     "sections": {
       "overview": "Overview",
       "profile": "Your profile",
@@ -2316,6 +2367,7 @@
       "templates": "Templates",
       "quick-replies": "Quick replies",
       "catalog": "Catalog",
+      "instagram": "Instagram",
       "payments": "Payments",
       "fields": "Fields & tags",
       "deals": "Deals & currency",

@@ -33,6 +33,7 @@ import {
   ArrowUp,
   MousePointerClick,
   List,
+  Camera,
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -50,6 +51,7 @@ import type {
   AutomationStepType,
   AutomationTriggerType,
   CustomField,
+  InstagramCommentKeywordTriggerConfig,
   InteractiveMessagePayload,
   KeywordMatchTriggerConfig,
   MessageTemplate,
@@ -111,6 +113,7 @@ const STEP_META: Record<AutomationStepType, StepMeta> = {
   condition: { label: "condition", icon: GitBranch, border: "border-l-amber-500" },
   send_webhook: { label: "send_webhook", icon: Webhook, border: "border-l-primary" },
   close_conversation: { label: "close_conversation", icon: CircleSlash, border: "border-l-primary" },
+  send_instagram_dm: { label: "send_instagram_dm", icon: Camera, border: "border-l-primary" },
 }
 
 const ADDABLE_STEPS: AutomationStepType[] = [
@@ -118,6 +121,7 @@ const ADDABLE_STEPS: AutomationStepType[] = [
   "send_buttons",
   "send_list",
   "send_template",
+  "send_instagram_dm",
   "add_tag",
   "remove_tag",
   "assign_conversation",
@@ -139,6 +143,7 @@ const TRIGGER_OPTIONS: { value: AutomationTriggerType }[] = [
   { value: "tag_added" },
   { value: "time_based" },
   { value: "order_paid" },
+  { value: "instagram_comment_keyword" },
 ]
 
 function cid(): string {
@@ -189,6 +194,8 @@ function blankConfig(type: AutomationStepType): Record<string, unknown> {
       return { url: "", headers: {}, body_template: "" }
     case "close_conversation":
       return {}
+    case "send_instagram_dm":
+      return { message_type: "text", text: "" }
     default:
       return {}
   }
@@ -866,6 +873,13 @@ function TriggerCard({
                 />
               </div>
             )}
+            {type === "instagram_comment_keyword" && (
+              <InstagramCommentKeywordConfig
+                config={config as unknown as InstagramCommentKeywordTriggerConfig}
+                onChange={onConfigChange}
+                t={t}
+              />
+            )}
             {type === "time_based" && (
               <div>
                 <label className="mb-1 block text-xs font-medium text-muted-foreground">
@@ -932,6 +946,99 @@ function KeywordMatchConfig({
 
   return (
     <div className="space-y-2">
+      <div>
+        <label className="mb-1 block text-xs font-medium text-muted-foreground">
+          {t("keywords")}
+        </label>
+        <Input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault()
+              commit()
+            }
+          }}
+          placeholder={t("keywordsHint")}
+          className="bg-muted text-foreground"
+        />
+      </div>
+      <div>
+        <label className="mb-1 block text-xs font-medium text-muted-foreground">
+          {t("config.matchType")}
+        </label>
+        <select
+          value={config?.match_type ?? "contains"}
+          onChange={(e) => onChange({ ...config, match_type: e.target.value as "exact" | "contains" })}
+          className="w-full rounded-md border border-border bg-muted px-2 py-1.5 text-sm text-foreground focus:outline-none"
+        >
+          <option value="contains">{t("config.matchContains")}</option>
+          <option value="exact">{t("config.matchExact")}</option>
+        </select>
+      </div>
+    </div>
+  )
+}
+
+function InstagramCommentKeywordConfig({
+  config,
+  onChange,
+  t,
+}: {
+  config: InstagramCommentKeywordTriggerConfig
+  onChange: (c: Record<string, unknown>) => void
+  t: ReturnType<typeof useTranslations>
+}) {
+  const keywords = config?.keywords ?? []
+  // Same local-draft-then-commit pattern as KeywordMatchConfig.
+  const [draft, setDraft] = useState(keywords.join(", "))
+
+  useEffect(() => {
+    if (config?.match_type == null) onChange({ ...config, match_type: "contains" })
+    if (config?.post_filter == null) onChange({ ...config, post_filter: "all" })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  function commit() {
+    const parsed = draft
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean)
+    setDraft(parsed.join(", "))
+    onChange({ ...config, keywords: parsed })
+  }
+
+  return (
+    <div className="space-y-2">
+      <div>
+        <label className="mb-1 block text-xs font-medium text-muted-foreground">
+          {t("config.igPostFilter")}
+        </label>
+        <select
+          value={config?.post_filter ?? "all"}
+          onChange={(e) =>
+            onChange({ ...config, post_filter: e.target.value as "all" | "specific" })
+          }
+          className="w-full rounded-md border border-border bg-muted px-2 py-1.5 text-sm text-foreground focus:outline-none"
+        >
+          <option value="all">{t("config.igPostFilterAll")}</option>
+          <option value="specific">{t("config.igPostFilterSpecific")}</option>
+        </select>
+      </div>
+      {config?.post_filter === "specific" && (
+        <div>
+          <label className="mb-1 block text-xs font-medium text-muted-foreground">
+            {t("config.igPostId")}
+          </label>
+          <Input
+            value={config?.post_id ?? ""}
+            onChange={(e) => onChange({ ...config, post_id: e.target.value })}
+            placeholder={t("config.igPostIdHint")}
+            className="bg-muted text-foreground"
+          />
+        </div>
+      )}
       <div>
         <label className="mb-1 block text-xs font-medium text-muted-foreground">
           {t("keywords")}
@@ -1298,6 +1405,52 @@ function StepEditor({
           />
         </FieldBlock>
       )
+    case "send_instagram_dm": {
+      const messageType = (cfg.message_type as string) ?? "text"
+      return (
+        <div className="space-y-2">
+          <FieldBlock label={t("config.igMessageType")}>
+            <select
+              value={messageType}
+              onChange={(e) => set({ message_type: e.target.value })}
+              className="w-full rounded-md border border-border bg-muted px-2 py-1.5 text-sm text-foreground focus:outline-none"
+            >
+              <option value="text">{t("config.igMessageTypeText")}</option>
+              <option value="document">{t("config.igMessageTypeDocument")}</option>
+            </select>
+          </FieldBlock>
+          {messageType === "document" ? (
+            <>
+              <FieldBlock label={t("config.igMediaUrl")}>
+                <Input
+                  value={(cfg.media_url as string) ?? ""}
+                  onChange={(e) => set({ media_url: e.target.value })}
+                  placeholder="https://…"
+                  className="bg-muted text-foreground"
+                />
+              </FieldBlock>
+              <FieldBlock label={t("config.igFilename")}>
+                <Input
+                  value={(cfg.filename as string) ?? ""}
+                  onChange={(e) => set({ filename: e.target.value })}
+                  className="bg-muted text-foreground"
+                />
+              </FieldBlock>
+              <p className="text-[11px] text-muted-foreground">{t("config.igDocumentHint")}</p>
+            </>
+          ) : (
+            <FieldBlock label={t("config.messageText")}>
+              <Textarea
+                value={(cfg.text as string) ?? ""}
+                onChange={(e) => set({ text: e.target.value })}
+                placeholder={t("config.placeholderMessageText")}
+                className="min-h-24 bg-muted text-foreground"
+              />
+            </FieldBlock>
+          )}
+        </div>
+      )
+    }
     case "send_buttons":
     case "send_list":
       // The whole step_config IS the interactive payload; the shared
@@ -1521,6 +1674,10 @@ function previewFor(step: BuilderStep): string {
       return interactivePayloadPreviewText(asInteractive(step.step_config)) || "no body yet"
     case "send_template":
       return (step.step_config.template_name as string) || "pick a template"
+    case "send_instagram_dm":
+      return step.step_config.message_type === "document"
+        ? (step.step_config.filename as string) || (step.step_config.media_url as string) || "no document yet"
+        : (step.step_config.text as string) || "no text yet"
     case "wait":
       return `${step.step_config.amount ?? "?"} ${step.step_config.unit ?? ""}`
     case "condition":
