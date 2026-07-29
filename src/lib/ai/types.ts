@@ -29,12 +29,33 @@ export interface AiConfig {
    *  knowledge base is embedded and semantic retrieval turns on; when
    *  null, retrieval falls back to lexical full-text search. */
   embeddingsApiKey: string | null
+  /** Tool names (see `AI_TOOL_DEFS` in `./tools`) this account has
+   *  opted into. Empty = today's text-only behaviour. */
+  enabledTools: string[]
 }
 
 /** A single conversation turn in the shape both providers accept. */
 export interface ChatMessage {
   role: 'user' | 'assistant'
   content: string
+}
+
+/** A provider-agnostic tool definition, translated to each provider's
+ *  own `tools` shape (OpenAI functions / Anthropic input_schema) at the
+ *  adapter boundary. `parameters` is a JSON Schema object. */
+export interface AiToolDef {
+  name: string
+  description: string
+  parameters: Record<string, unknown>
+}
+
+/** One tool invocation the model asked for, normalized across
+ *  providers — OpenAI's `function.arguments` (a JSON string) is parsed
+ *  here already; Anthropic's `input` is native JSON either way. */
+export interface ToolCall {
+  id: string
+  name: string
+  input: Record<string, unknown>
 }
 
 /**
@@ -52,6 +73,9 @@ export interface AiUsage {
 export interface ProviderResult {
   text: string
   usage: AiUsage | null
+  /** Tool calls the model asked for alongside (or instead of) text, or
+   *  null when no `tools` were offered / none were called. */
+  toolCalls: ToolCall[] | null
 }
 
 /** Outcome of a generation call. */
@@ -62,6 +86,8 @@ export interface GenerateResult {
   handoff: boolean
   /** Provider token usage for this call, or null when unavailable. */
   usage: AiUsage | null
+  /** Tool calls returned in the same turn as `text` — see `ProviderResult`. */
+  toolCalls: ToolCall[]
 }
 
 /**

@@ -1,4 +1,4 @@
-import { AiError, type AiUsage, type ChatMessage } from '../types'
+import { AiError, type AiToolDef, type AiUsage, type ChatMessage } from '../types'
 
 // ============================================================
 // Bits shared by the OpenAI + Anthropic adapters.
@@ -10,6 +10,9 @@ export interface ProviderArgs {
   systemPrompt: string
   messages: ChatMessage[]
   timeoutMs: number
+  /** Tools to offer the model this turn. Omitted/empty = no tools sent
+   *  (today's behaviour — providers ignore an absent `tools` field). */
+  tools?: AiToolDef[]
 }
 
 /**

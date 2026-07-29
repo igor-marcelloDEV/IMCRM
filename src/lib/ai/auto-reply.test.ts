@@ -52,6 +52,7 @@ const ARGS = {
   conversationId: 'conv-1',
   contactId: 'contact-1',
   configOwnerUserId: 'user-1',
+  inboundProviderMessageKey: 'wamid.test-1',
   automationHandledMessage: false,
 }
 
@@ -66,6 +67,7 @@ function aiConfig(overrides: Partial<AiConfig> = {}): AiConfig {
     autoReplyMaxPerConversation: 3,
     handoffAgentId: null,
     embeddingsApiKey: null,
+    enabledTools: [],
     ...overrides,
   }
 }

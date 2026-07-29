@@ -13,6 +13,7 @@ function config(overrides: Partial<AiConfig> = {}): AiConfig {
     autoReplyMaxPerConversation: 3,
     handoffAgentId: null,
     embeddingsApiKey: null,
+    enabledTools: [],
     ...overrides,
   }
 }
@@ -44,6 +45,7 @@ describe('parseGeneration', () => {
       text: 'Hello there',
       handoff: false,
       usage: null,
+      toolCalls: [],
     })
   })
 
@@ -52,11 +54,13 @@ describe('parseGeneration', () => {
       text: '',
       handoff: true,
       usage: null,
+      toolCalls: [],
     })
     expect(parseGeneration('Let me get a human [[HANDOFF]]')).toEqual({
       text: 'Let me get a human',
       handoff: true,
       usage: null,
+      toolCalls: [],
     })
   })
 
@@ -66,6 +70,7 @@ describe('parseGeneration', () => {
       text: 'Hi',
       handoff: false,
       usage,
+      toolCalls: [],
     })
   })
 })
@@ -90,6 +95,7 @@ describe('generateReply — OpenAI', () => {
       text: 'Sure — happy to help!',
       handoff: false,
       usage: { promptTokens: 42, completionTokens: 8, totalTokens: 50 },
+      toolCalls: [],
     })
     const [url, opts] = fetchMock.mock.calls[0]
     expect(url).toContain('api.openai.com')
@@ -149,6 +155,7 @@ describe('generateReply — Anthropic', () => {
       text: 'Hi there!',
       handoff: false,
       usage: { promptTokens: 30, completionTokens: 6, totalTokens: 36 },
+      toolCalls: [],
     })
     const [url, opts] = fetchMock.mock.calls[0]
     expect(url).toContain('api.anthropic.com')

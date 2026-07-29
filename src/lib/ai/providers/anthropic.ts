@@ -1,4 +1,4 @@
-import { AiError, type ChatMessage, type ProviderResult } from '../types'
+import { AiError, type ChatMessage, type ProviderResult, type ToolCall } from '../types'
 import { MAX_OUTPUT_TOKENS } from '../defaults'
 import {
   mergeConsecutive,
@@ -12,7 +12,13 @@ const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages'
 const ANTHROPIC_VERSION = '2023-06-01'
 
 interface AnthropicResponse {
-  content?: { type?: string; text?: string }[]
+  content?: {
+    type?: string
+    text?: string
+    id?: string
+    name?: string
+    input?: unknown
+  }[]
   usage?: { input_tokens?: number; output_tokens?: number }
 }
 
@@ -40,7 +46,7 @@ function normalizeForAnthropic(messages: ChatMessage[]): ChatMessage[] {
  * in `generateReply`).
  */
 export async function generateAnthropic(args: ProviderArgs): Promise<ProviderResult> {
-  const { apiKey, model, systemPrompt, messages, timeoutMs } = args
+  const { apiKey, model, systemPrompt, messages, timeoutMs, tools } = args
 
   let res: Response
   try {
@@ -56,6 +62,15 @@ export async function generateAnthropic(args: ProviderArgs): Promise<ProviderRes
         system: systemPrompt,
         max_tokens: MAX_OUTPUT_TOKENS,
         messages: normalizeForAnthropic(messages),
+        ...(tools && tools.length > 0
+          ? {
+              tools: tools.map((t) => ({
+                name: t.name,
+                description: t.description,
+                input_schema: t.parameters,
+              })),
+            }
+          : {}),
       }),
       signal: AbortSignal.timeout(timeoutMs),
     })
@@ -68,12 +83,22 @@ export async function generateAnthropic(args: ProviderArgs): Promise<ProviderRes
   }
 
   const data = (await res.json().catch(() => null)) as AnthropicResponse | null
-  const text = data?.content
-    ?.filter((b) => b.type === 'text' && typeof b.text === 'string')
+  const text = (data?.content ?? [])
+    .filter((b) => b.type === 'text' && typeof b.text === 'string')
     .map((b) => b.text)
     .join('')
     .trim()
-  if (!text) {
+  const toolCalls: ToolCall[] = (data?.content ?? [])
+    .filter((b) => b.type === 'tool_use' && typeof b.name === 'string')
+    .map((b, i) => ({
+      id: b.id || `anthropic-tool-${i}`,
+      name: b.name as string,
+      input:
+        b.input && typeof b.input === 'object' ? (b.input as Record<string, unknown>) : {},
+    }))
+  // A tool-only turn legitimately has no text block — only treat
+  // "nothing at all" as an error.
+  if (!text && toolCalls.length === 0) {
     throw new AiError('A Anthropic retornou uma resposta vazia.', {
       code: 'empty_response',
     })
@@ -83,5 +108,5 @@ export async function generateAnthropic(args: ProviderArgs): Promise<ProviderRes
     prompt: data?.usage?.input_tokens,
     completion: data?.usage?.output_tokens,
   })
-  return { text, usage }
+  return { text, usage, toolCalls: toolCalls.length > 0 ? toolCalls : null }
 }

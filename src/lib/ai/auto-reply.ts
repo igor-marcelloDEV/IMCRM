@@ -7,6 +7,7 @@ import { buildSystemPrompt } from './defaults'
 import { buildHandoffSummary } from './handoff'
 import { logAiUsage } from './usage'
 import { latestUserMessage } from './query'
+import { AI_TOOL_DEFS, buildToolsContextBlock, executeAiTool, isToolName } from './tools'
 import { engineSendText } from '@/lib/flows/meta-send'
 import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit'
 
@@ -18,6 +19,11 @@ interface DispatchArgs {
   /** The account's WhatsApp config owner, used for the outbound send's
    *  audit columns (mirrors how the flow runner passes it through). */
   configOwnerUserId: string
+  /** `provider_message_key` of the inbound message that triggered this
+   *  dispatch — the idempotency key for any tool call this turn writes
+   *  to `ai_tool_calls`, so a webhook retry can't re-execute a
+   *  side-effecting action (add to cart, move stage) twice. */
+  inboundProviderMessageKey: string
   /**
    * True when a `new_message_received`/`keyword_match` automation
    * actually matched its trigger AND sent a customer-facing message
@@ -60,7 +66,14 @@ interface DispatchArgs {
 export async function dispatchInboundToAiReply(
   args: DispatchArgs,
 ): Promise<void> {
-  const { accountId, conversationId, contactId, configOwnerUserId, automationHandledMessage } = args
+  const {
+    accountId,
+    conversationId,
+    contactId,
+    configOwnerUserId,
+    inboundProviderMessageKey,
+    automationHandledMessage,
+  } = args
 
   try {
     const db = supabaseAdmin()
@@ -112,17 +125,29 @@ export async function dispatchInboundToAiReply(
       latestUserMessage(messages),
     )
 
+    // Tools are opt-in per account (ai_configs.enabled_tools). When any
+    // are on, the model needs to know what catalog items / pipeline
+    // stages exist to name them — see buildToolsContextBlock.
+    const enabledTools = (config.enabledTools ?? []).filter(isToolName)
+    const toolsContext =
+      enabledTools.length > 0 ? await buildToolsContextBlock(db, accountId) : ''
+
     const systemPrompt = buildSystemPrompt({
       userPrompt: config.systemPrompt,
       mode: 'auto_reply',
       knowledge,
     })
+    const fullSystemPrompt = toolsContext
+      ? `${systemPrompt}\n\n${toolsContext}`
+      : systemPrompt
 
-    const { text, handoff, usage } = await generateReply({
+    const { text, handoff, usage, toolCalls } = await generateReply({
       config,
-      systemPrompt,
+      systemPrompt: fullSystemPrompt,
       messages,
+      tools: enabledTools.length > 0 ? enabledTools.map((n) => AI_TOOL_DEFS[n]) : undefined,
     })
+    const calls = toolCalls ?? []
 
     // Record token spend on the account's BYO key. Fire-and-forget so it
     // never adds latency to the customer-facing send: `logAiUsage`
@@ -138,7 +163,39 @@ export async function dispatchInboundToAiReply(
       usage,
     })
 
-    if (handoff || !text) {
+    // Execute any tool calls before the handoff/text branches below — an
+    // action the model decided to take (add to cart, move stage) is
+    // valid even on a turn that also hands off to a human. A webhook
+    // retry replaying the same inbound message must not re-run these:
+    // check whether this provider_message_key already has a logged
+    // execution and skip if so (the text reply itself has no equivalent
+    // guard today — see auto-reply.ts's module doc — but a duplicate
+    // customer-facing message is a much smaller problem than a
+    // duplicated cart item or stage move).
+    if (calls.length > 0) {
+      const { data: alreadyRan } = await db
+        .from('ai_tool_calls')
+        .select('id')
+        .eq('provider_message_key', inboundProviderMessageKey)
+        .limit(1)
+        .maybeSingle()
+      if (!alreadyRan) {
+        for (const call of calls) {
+          await executeAiTool(
+            db,
+            {
+              accountId,
+              contactId,
+              conversationId,
+              providerMessageKey: inboundProviderMessageKey,
+            },
+            call,
+          )
+        }
+      }
+    }
+
+    if (handoff || (!text && calls.length === 0)) {
       // The model can't (or shouldn't) answer — stop auto-replying on
       // this thread and hand it to a human. We (a) pause the bot here
       // (sticky until re-enabled), (b) route the conversation to the
@@ -162,6 +219,11 @@ export async function dispatchInboundToAiReply(
       await db.from('conversations').update(update).eq('id', conversationId)
       return
     }
+
+    // A tool-only turn (an action, no accompanying reply) is a silent
+    // success, not a handoff — the customer sees nothing, but nothing
+    // needs to be sent either.
+    if (!text) return
 
     // Atomically claim a reply slot: the cap check + increment happen in
     // one UPDATE, so concurrent inbounds can never overshoot the cap. If

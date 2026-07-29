@@ -560,7 +560,7 @@ async function loadActiveCatalogItems(
  * concurrent INSERT re-reads rather than erroring, same pattern
  * `startNewRun`'s 23505 handling uses for flow_runs.
  */
-async function getOrCreateOpenCart(
+export async function getOrCreateOpenCart(
   db: AdminClient,
   args: { accountId: string; contactId: string; conversationId: string | null },
 ): Promise<string> {
@@ -602,7 +602,7 @@ async function getOrCreateOpenCart(
  * the id doesn't resolve to a live catalog item — the caller treats
  * that the same as "no match" (stale button, tampered reply_id).
  */
-async function addCatalogItemToCart(
+export async function addCatalogItemToCart(
   db: AdminClient,
   args: {
     accountId: string;

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { Loader2, Sparkles, CheckCircle2, Trash2, Eye, EyeOff } from 'lucide-react';
+import { Loader2, Sparkles, CheckCircle2, Trash2, Eye, EyeOff, Zap, TriangleAlert } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { canEditSettings } from '@/lib/auth/roles';
 import { Button } from '@/components/ui/button';
@@ -48,6 +48,14 @@ const KEY_PLACEHOLDER: Record<AiProvider, string> = {
   anthropic: 'sk-ant-...',
 };
 
+// Kept as a plain client-side constant rather than imported from
+// `@/lib/ai/tools` — that module pulls in `@/lib/flows/engine` (server
+// service-role code), which must never end up in a client bundle. The
+// three names are a fixed, rarely-changing vocabulary shared with the
+// server's `TOOL_NAMES`/`AI_TOOL_DEFS`.
+const TOOL_OPTIONS = ['add_to_cart', 'move_deal_stage', 'mark_deal_status'] as const;
+type ToolOption = (typeof TOOL_OPTIONS)[number];
+
 export function AiConfig() {
   const { accountId, accountRole, profileLoading } = useAuth();
   const canEdit = accountRole ? canEditSettings(accountRole) : false;
@@ -75,6 +83,7 @@ export function AiConfig() {
   // Empty string = leave unassigned (shared queue).
   const [handoffAgentId, setHandoffAgentId] = useState('');
   const [members, setMembers] = useState<AccountMember[]>([]);
+  const [enabledTools, setEnabledTools] = useState<ToolOption[]>([]);
 
   // Guard keyed on the account (not a bare boolean) so an in-place
   // account switch — ownership transfer, multi-account membership —
@@ -100,6 +109,13 @@ export function AiConfig() {
         setAutoReplyEnabled(data.auto_reply_enabled);
         setMaxPerConversation(data.auto_reply_max_per_conversation ?? 3);
         setHandoffAgentId(data.handoff_agent_id ?? '');
+        setEnabledTools(
+          Array.isArray(data.enabled_tools)
+            ? data.enabled_tools.filter((t: string): t is ToolOption =>
+                (TOOL_OPTIONS as readonly string[]).includes(t),
+              )
+            : [],
+        );
         setHasStoredKey(Boolean(data.has_key));
         setApiKey(data.has_key ? MASKED_KEY : '');
         setKeyEdited(false);
@@ -151,7 +167,14 @@ export function AiConfig() {
     auto_reply_enabled: autoReplyEnabled,
     auto_reply_max_per_conversation: maxPerConversation,
     handoff_agent_id: handoffAgentId || null,
+    enabled_tools: enabledTools,
   });
+
+  const toggleTool = (tool: ToolOption, checked: boolean) => {
+    setEnabledTools((prev) =>
+      checked ? [...prev, tool].filter((t, i, arr) => arr.indexOf(t) === i) : prev.filter((t) => t !== tool),
+    );
+  };
 
   const handleTest = async () => {
     setTesting(true);
@@ -219,6 +242,7 @@ export function AiConfig() {
         setAutoReplyEnabled(false);
         setSystemPrompt('');
         setHandoffAgentId('');
+        setEnabledTools([]);
       } else {
         const data = await res.json();
         toast.error(data.error ?? t('removeFailed'));
@@ -482,6 +506,57 @@ export function AiConfig() {
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Zap className="h-4 w-4 text-primary" /> {t('toolsTitle')}
+            </CardTitle>
+            <CardDescription>{t('toolsDesc')}</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-400">
+              <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" />
+              <p>{t('toolsWarning')}</p>
+            </div>
+
+            <div className="flex items-center justify-between gap-4 rounded-md border border-border p-3">
+              <div>
+                <p className="text-sm font-medium text-foreground">{t('toolAddToCart')}</p>
+                <p className="text-xs text-muted-foreground">{t('toolAddToCartDesc')}</p>
+              </div>
+              <Switch
+                checked={enabledTools.includes('add_to_cart')}
+                onCheckedChange={(v) => toggleTool('add_to_cart', v)}
+                disabled={disabled || !autoReplyEnabled}
+              />
+            </div>
+
+            <div className="flex items-center justify-between gap-4 rounded-md border border-border p-3">
+              <div>
+                <p className="text-sm font-medium text-foreground">{t('toolMoveStage')}</p>
+                <p className="text-xs text-muted-foreground">{t('toolMoveStageDesc')}</p>
+              </div>
+              <Switch
+                checked={enabledTools.includes('move_deal_stage')}
+                onCheckedChange={(v) => toggleTool('move_deal_stage', v)}
+                disabled={disabled || !autoReplyEnabled}
+              />
+            </div>
+
+            <div className="flex items-center justify-between gap-4 rounded-md border border-border p-3">
+              <div>
+                <p className="text-sm font-medium text-foreground">{t('toolMarkStatus')}</p>
+                <p className="text-xs text-muted-foreground">{t('toolMarkStatusDesc')}</p>
+              </div>
+              <Switch
+                checked={enabledTools.includes('mark_deal_status')}
+                onCheckedChange={(v) => toggleTool('mark_deal_status', v)}
+                disabled={disabled || !autoReplyEnabled}
+              />
             </div>
           </CardContent>
         </Card>

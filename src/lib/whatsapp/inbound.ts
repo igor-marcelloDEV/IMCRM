@@ -445,6 +445,7 @@ export async function ingestInboundMessage(
       conversationId: conversation.id,
       contactId: contact.id,
       configOwnerUserId,
+      inboundProviderMessageKey: message.providerMessageKey,
       automationHandledMessage,
     });
   }
