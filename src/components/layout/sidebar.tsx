@@ -9,6 +9,7 @@ import { useTotalUnread } from "@/hooks/use-total-unread";
 import { useUnreadNotifications } from "@/hooks/use-unread-notifications";
 import {
   Bell,
+  BookOpen,
   Bot,
   CreditCard,
   Crown,
@@ -99,6 +100,7 @@ const navItems: NavItem[] = [
   { href: "/contacts", labelKey: "contacts", icon: Users },
   { href: "/pipelines", labelKey: "pipelines", icon: GitBranch },
   { href: "/orders", labelKey: "orders", icon: Package },
+  { href: "/settings?tab=catalog", labelKey: "catalog", icon: BookOpen },
   { href: "/broadcasts", labelKey: "broadcasts", icon: Radio },
   { href: "/automations", labelKey: "automations", icon: Zap },
   { href: "/flows", labelKey: "flows", icon: Workflow, beta: true },

@@ -585,6 +585,14 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
         .select('default_currency')
         .eq('id', args.automation.account_id)
         .maybeSingle()
+      // A template like "Novo lead via WhatsApp: {{message.text}}"
+      // leaves a dangling ": " when message.text interpolates to
+      // empty (system placeholder, or just a media message with no
+      // caption) — trim that before falling back to the template
+      // stripped of its variable entirely.
+      const interpolatedTitle = interpolate(cfg.title, args)
+        .replace(/[:\-–—]\s*$/, '')
+        .trim()
       await db.from('deals').insert({
         // Tenancy + audit, same split as automation_logs above.
         account_id: args.automation.account_id,
@@ -592,7 +600,7 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
         pipeline_id: cfg.pipeline_id,
         stage_id: cfg.stage_id,
         contact_id: args.contactId,
-        title: interpolate(cfg.title, args),
+        title: interpolatedTitle || 'Novo negócio',
         value: cfg.value ?? 0,
         currency: acct?.default_currency ?? 'USD',
         status: 'open',
@@ -762,10 +770,27 @@ function waitMs(cfg: WaitStepConfig): number {
   return Math.max(1_000, cfg.amount * unitMs)
 }
 
+/**
+ * Bracketed system placeholders — "[Tipo de mensagem não suportado]",
+ * "[Figurinha]", "[Resposta interativa]", etc. (see baileys-client.ts
+ * and the webhook route) — mark content that never was real customer
+ * text. Interpolating one verbatim into a deal title or an outbound
+ * message reads as a bug ("Lead via WhatsApp: [Tipo de mensagem não
+ * suportado]"), not a feature, so message.text collapses to empty in
+ * that case, same as an unset var.
+ */
+function isSystemPlaceholder(text: string): boolean {
+  const trimmed = text.trim()
+  return trimmed.startsWith('[') && trimmed.endsWith(']')
+}
+
 function interpolate(s: string, args: ExecuteArgs): string {
   return s.replace(/\{\{\s*([\w.]+)\s*\}\}/g, (_, key) => {
     const [ns, prop] = String(key).split('.')
-    if (ns === 'message' && prop === 'text') return String(args.context.message_text ?? '')
+    if (ns === 'message' && prop === 'text') {
+      const text = args.context.message_text ?? ''
+      return isSystemPlaceholder(text) ? '' : text
+    }
     if (ns === 'vars' && prop) return String(args.context.vars?.[prop] ?? '')
     return ''
   })

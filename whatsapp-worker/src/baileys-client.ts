@@ -241,42 +241,69 @@ async function handleInboundMessage(
   const contactName = msg.pushName ?? undefined;
   const m = msg.message!;
 
+  // Ephemeral ("disappearing messages" mode) and view-once wrappers
+  // aren't distinct content — they carry a completely normal
+  // text/image/video message one level down at `.message`. Unwrapping
+  // here means a view-once photo (very common — verification selfies,
+  // etc.) lands as a real image instead of falling through to the
+  // "unsupported" branch below, which is what was silently swallowing
+  // a meaningful share of real inbound leads.
+  const effective =
+    m.ephemeralMessage?.message ??
+    m.viewOnceMessage?.message ??
+    m.viewOnceMessageV2?.message ??
+    m.viewOnceMessageV2Extension?.message ??
+    m;
+
   let contentType: 'text' | 'image' | 'document' | 'audio' | 'video' | 'location' = 'text';
   let contentText: string | null = null;
   let mediaUrl: string | null = null;
 
-  if (m.conversation) {
-    contentText = m.conversation;
-  } else if (m.extendedTextMessage?.text) {
-    contentText = m.extendedTextMessage.text;
-  } else if (m.imageMessage) {
+  if (effective.conversation) {
+    contentText = effective.conversation;
+  } else if (effective.extendedTextMessage?.text) {
+    contentText = effective.extendedTextMessage.text;
+  } else if (effective.imageMessage) {
     contentType = 'image';
-    contentText = m.imageMessage.caption ?? null;
-    mediaUrl = await downloadAndHostMedia(sock, msg, accountId, 'image', null, m.imageMessage.mimetype);
-  } else if (m.videoMessage) {
+    contentText = effective.imageMessage.caption ?? null;
+    mediaUrl = await downloadAndHostMedia(sock, msg, accountId, 'image', null, effective.imageMessage.mimetype);
+  } else if (effective.videoMessage) {
     contentType = 'video';
-    contentText = m.videoMessage.caption ?? null;
-    mediaUrl = await downloadAndHostMedia(sock, msg, accountId, 'video', null, m.videoMessage.mimetype);
-  } else if (m.documentMessage) {
+    contentText = effective.videoMessage.caption ?? null;
+    mediaUrl = await downloadAndHostMedia(sock, msg, accountId, 'video', null, effective.videoMessage.mimetype);
+  } else if (effective.documentMessage) {
     contentType = 'document';
-    contentText = m.documentMessage.caption ?? m.documentMessage.fileName ?? null;
+    contentText = effective.documentMessage.caption ?? effective.documentMessage.fileName ?? null;
     mediaUrl = await downloadAndHostMedia(
-      sock, msg, accountId, 'document', m.documentMessage.fileName, m.documentMessage.mimetype,
+      sock, msg, accountId, 'document', effective.documentMessage.fileName, effective.documentMessage.mimetype,
     );
-  } else if (m.audioMessage) {
+  } else if (effective.audioMessage) {
     contentType = 'audio';
-    mediaUrl = await downloadAndHostMedia(sock, msg, accountId, 'audio', null, m.audioMessage.mimetype);
-  } else if (m.locationMessage) {
+    mediaUrl = await downloadAndHostMedia(sock, msg, accountId, 'audio', null, effective.audioMessage.mimetype);
+  } else if (effective.locationMessage) {
     contentType = 'location';
-    const loc = m.locationMessage;
+    const loc = effective.locationMessage;
     contentText = [loc.name, loc.address, `${loc.degreesLatitude},${loc.degreesLongitude}`]
       .filter(Boolean)
       .join(' - ');
+  } else if (effective.liveLocationMessage) {
+    contentType = 'location';
+    const loc = effective.liveLocationMessage;
+    contentText = `${loc.degreesLatitude},${loc.degreesLongitude}`;
   } else {
-    // Sticker, poll, reaction, ephemeral wrapper, etc. — not modelled
-    // for v1. Land it as text so the conversation thread isn't silently
-    // missing a turn.
-    contentText = '[Tipo de mensagem não suportado no WhatsApp Web]';
+    // Sticker, poll, reaction, shared contact, deleted/edited-message
+    // protocol frames, etc. — not modelled as first-class content.
+    // Bracketed, type-specific text so the thread isn't silently
+    // missing a turn AND downstream consumers (automations
+    // interpolating {{message.text}} into a deal title, an AI
+    // auto-reply quoting it back) can recognize the `[...]` shape as
+    // "not real customer text" and skip it instead of echoing it —
+    // see interpolate() in src/lib/automations/engine.ts.
+    if (effective.stickerMessage) contentText = '[Figurinha]';
+    else if (effective.pollCreationMessage || effective.pollCreationMessageV2 || effective.pollCreationMessageV3) contentText = '[Enquete]';
+    else if (effective.reactionMessage) contentText = `[Reação: ${effective.reactionMessage.text || '👍'}]`;
+    else if (effective.contactMessage || effective.contactsArrayMessage) contentText = '[Contato compartilhado]';
+    else contentText = '[Tipo de mensagem não suportado no WhatsApp Web]';
   }
 
   const replyToProviderMessageKey = m.extendedTextMessage?.contextInfo?.stanzaId ?? undefined;

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
+import { useAuth } from '@/hooks/use-auth';
 import { MessageTemplate } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Loader2, FileText, ArrowRight } from 'lucide-react';
@@ -22,22 +23,31 @@ interface Step1Props {
 
 export function Step1ChooseTemplate({ selectedTemplate, onSelect, onNext, onBack }: Step1Props) {
   const t = useTranslations('Broadcasts.wizard');
+  const { account, profileLoading } = useAuth();
   const [templates, setTemplates] = useState<MessageTemplate[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Meta's Cloud API rejects a send with anything but an APPROVED
+  // template — hide the rest so a pick never 400s at broadcast time.
+  // Baileys has no such review step (it just renders body_text as a
+  // normal WhatsApp Web message), so DRAFT is equally sendable there;
+  // gating on APPROVED for those accounts would just show "no
+  // templates" forever. Same distinction template-manager.tsx already
+  // surfaces as a banner.
+  const isBaileys = account?.active_whatsapp_provider === 'baileys';
+
   useEffect(() => {
+    // Wait for the account to resolve so the very first fetch already
+    // knows whether to include DRAFT templates — avoids a visible
+    // flash of "no templates" while profileLoading settles.
+    if (profileLoading) return;
     async function fetchTemplates() {
       try {
         const supabase = createClient();
-        // Only APPROVED templates can be sent via Meta — anything else
-        // would 400 at broadcast time. Hide them rather than letting
-        // the user pick a template that will fail.
-        const { data, error: fetchError } = await supabase
-          .from('message_templates')
-          .select('*')
-          .eq('status', 'APPROVED')
-          .order('created_at', { ascending: false });
+        let query = supabase.from('message_templates').select('*').order('created_at', { ascending: false });
+        if (!isBaileys) query = query.eq('status', 'APPROVED');
+        const { data, error: fetchError } = await query;
 
         if (fetchError) throw fetchError;
         setTemplates(data ?? []);
@@ -49,7 +59,7 @@ export function Step1ChooseTemplate({ selectedTemplate, onSelect, onNext, onBack
     }
 
     fetchTemplates();
-  }, []);
+  }, [isBaileys, profileLoading, t]);
 
   if (loading) {
     return (
