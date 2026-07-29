@@ -26,6 +26,18 @@ function initials(name?: string, fallback?: string) {
   return source.charAt(0).toUpperCase();
 }
 
+// Deterministic color per contact — same hue every render/card for a
+// given name/phone, spread across a fixed hue wheel so avatars read
+// as distinct people at a glance instead of one uniform gray dot.
+const AVATAR_HUES = [210, 265, 330, 25, 155, 190, 300, 45];
+function avatarColor(source?: string): string {
+  const s = (source || "?").trim();
+  let hash = 0;
+  for (let i = 0; i < s.length; i += 1) hash = (hash * 31 + s.charCodeAt(i)) >>> 0;
+  const hue = AVATAR_HUES[hash % AVATAR_HUES.length];
+  return `oklch(0.55 0.14 ${hue})`;
+}
+
 export function DealCard({ deal, stage, onEdit, isOverlay }: DealCardProps) {
   const t = useTranslations("Pipelines.card");
   const contactLabel = deal.contact?.name || deal.contact?.phone || t("noContact");
@@ -55,7 +67,13 @@ export function DealCard({ deal, stage, onEdit, isOverlay }: DealCardProps) {
       />
 
       <div className="flex items-start justify-between gap-2">
-        <h4 className="flex-1 text-sm font-semibold leading-snug text-foreground break-words">
+        {/* Clamped to 2 lines — a long auto-generated title (e.g. from
+            an automation) no longer stretches the card taller than its
+            neighbors; the full title is still available via `title=`. */}
+        <h4
+          title={deal.title}
+          className="line-clamp-2 flex-1 text-sm font-semibold leading-snug text-foreground break-words"
+        >
           {deal.title}
         </h4>
         {deal.status === "won" && (
@@ -74,16 +92,23 @@ export function DealCard({ deal, stage, onEdit, isOverlay }: DealCardProps) {
 
       {/* Contact row */}
       <div className="mt-2 flex items-center gap-2">
-        <span className="flex h-5 w-5 items-center justify-center rounded-full bg-muted text-[10px] font-semibold text-foreground">
+        <span
+          className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold text-white"
+          style={{ backgroundColor: avatarColor(deal.contact?.name || deal.contact?.phone) }}
+        >
           {initials(deal.contact?.name, deal.contact?.phone)}
         </span>
         <span className="truncate text-xs text-muted-foreground">{contactLabel}</span>
       </div>
 
-      <div className="mt-2 flex items-center justify-between">
-        <span className="text-sm font-bold text-primary">
-          {formatCurrency(deal.value, deal.currency)}
-        </span>
+      <div className="mt-2.5 flex items-center justify-between border-t border-border/40 pt-2">
+        {deal.value > 0 ? (
+          <span className="text-sm font-bold text-primary">
+            {formatCurrency(deal.value, deal.currency)}
+          </span>
+        ) : (
+          <span className="text-[11px] text-muted-foreground/70">{t("noValue")}</span>
+        )}
         {deal.expected_close_date && (
           <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
             <Calendar className="h-3 w-3" />

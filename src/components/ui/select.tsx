@@ -6,7 +6,54 @@ import { Select as SelectPrimitive } from "@base-ui/react/select"
 import { cn } from "@/lib/utils"
 import { ChevronDownIcon, CheckIcon, ChevronUpIcon } from "lucide-react"
 
-const Select = SelectPrimitive.Root
+/**
+ * Unlike Radix's Select.Value, base-ui's doesn't auto-render the
+ * matching item's label — left alone it prints the raw `value` (a
+ * UUID, a "__none__" sentinel, whatever was passed to SelectItem).
+ * The two documented ways around that (a `children` render-prop on
+ * Value, or an `items` map on Root) both push a label-lookup burden
+ * onto every call site — this codebase has ~20 of them, all written
+ * as plain `<SelectItem value={x}>{label}</SelectItem>` JSX.
+ *
+ * Instead, SelectItem registers its own (value -> rendered label)
+ * into this context as it mounts, and SelectValue reads back through
+ * it. Existing call sites need zero changes.
+ *
+ * Registration goes through real state (not a mutable ref) on
+ * purpose: SelectTrigger/Value renders before SelectContent's items
+ * in JSX source order, so on first paint the map is empty regardless
+ * — a ref write wouldn't schedule the re-render needed to pick the
+ * label up once SelectItem's effect actually runs. Entries are never
+ * removed on unmount, so a value already seen once keeps displaying
+ * correctly even while the popup is closed.
+ */
+interface SelectLabelsCtx {
+  labels: Map<string, React.ReactNode>
+  register: (value: string, label: React.ReactNode) => void
+}
+const SelectLabelsContext = React.createContext<SelectLabelsCtx | null>(null)
+
+function useSelectLabels(): SelectLabelsCtx {
+  const ctx = React.useContext(SelectLabelsContext)
+  if (!ctx) throw new Error("Select.Item/Select.Value must be rendered inside <Select>")
+  return ctx
+}
+
+function Select<Value, Multiple extends boolean | undefined = false>({
+  children,
+  ...props
+}: SelectPrimitive.Root.Props<Value, Multiple>) {
+  const [labels, setLabels] = React.useState<Map<string, React.ReactNode>>(() => new Map())
+  const register = React.useCallback((value: string, label: React.ReactNode) => {
+    setLabels((prev) => (prev.get(value) === label ? prev : new Map(prev).set(value, label)))
+  }, [])
+  const ctx = React.useMemo(() => ({ labels, register }), [labels, register])
+  return (
+    <SelectLabelsContext.Provider value={ctx}>
+      <SelectPrimitive.Root {...props}>{children}</SelectPrimitive.Root>
+    </SelectLabelsContext.Provider>
+  )
+}
 
 function SelectGroup({ className, ...props }: SelectPrimitive.Group.Props) {
   return (
@@ -18,13 +65,19 @@ function SelectGroup({ className, ...props }: SelectPrimitive.Group.Props) {
   )
 }
 
-function SelectValue({ className, ...props }: SelectPrimitive.Value.Props) {
+function SelectValue({ className, placeholder, ...props }: SelectPrimitive.Value.Props) {
+  const { labels } = useSelectLabels()
   return (
     <SelectPrimitive.Value
       data-slot="select-value"
       className={cn("flex flex-1 text-left", className)}
       {...props}
-    />
+    >
+      {(value: unknown) => {
+        if (value === null || value === undefined || value === "") return placeholder ?? null
+        return labels.get(String(value)) ?? String(value)
+      }}
+    </SelectPrimitive.Value>
   )
 }
 
@@ -56,6 +109,35 @@ function SelectTrigger({
   )
 }
 
+/**
+ * Walks the `children` tree SelectContent was given — not the DOM,
+ * not mounted components, just the plain React-element data structure
+ * — looking for SelectItem elements to register. This is what makes
+ * the trigger's label correct on first paint: base-ui doesn't mount
+ * SelectItem into the tree at all until the popup has been opened at
+ * least once (confirmed by testing — the trigger shows the raw value
+ * right up until the first open, then self-corrects), so registering
+ * from inside SelectItem itself is always one open too late. Reading
+ * the element tree here needs no mount at all.
+ */
+function collectItemLabels(
+  children: React.ReactNode,
+  register: (value: string, label: React.ReactNode) => void,
+) {
+  React.Children.forEach(children, (child) => {
+    if (!React.isValidElement(child)) return
+    const props = child.props as { value?: unknown; children?: React.ReactNode }
+    if (child.type === SelectItem) {
+      if (props.value !== undefined && props.value !== null) {
+        register(String(props.value), props.children)
+      }
+      return
+    }
+    // Recurse into SelectGroup / Fragment / any other wrapper.
+    if (props.children) collectItemLabels(props.children, register)
+  })
+}
+
 function SelectContent({
   className,
   children,
@@ -70,6 +152,11 @@ function SelectContent({
     SelectPrimitive.Positioner.Props,
     "align" | "alignOffset" | "side" | "sideOffset" | "alignItemWithTrigger"
   >) {
+  const { register } = useSelectLabels()
+  React.useEffect(() => {
+    collectItemLabels(children, register)
+  }, [children, register])
+
   return (
     <SelectPrimitive.Portal>
       <SelectPrimitive.Positioner
@@ -111,11 +198,17 @@ function SelectLabel({
 function SelectItem({
   className,
   children,
+  value,
   ...props
 }: SelectPrimitive.Item.Props) {
+  const { register } = useSelectLabels()
+  React.useEffect(() => {
+    if (value !== undefined && value !== null) register(String(value), children)
+  }, [register, value, children])
   return (
     <SelectPrimitive.Item
       data-slot="select-item"
+      value={value}
       className={cn(
         "relative flex w-full cursor-default items-center gap-1.5 rounded-md py-1 pr-8 pl-1.5 text-sm outline-hidden select-none focus:bg-accent focus:text-accent-foreground not-data-[variant=destructive]:focus:**:text-accent-foreground data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 *:[span]:last:flex *:[span]:last:items-center *:[span]:last:gap-2",
         className

@@ -659,11 +659,15 @@
     "card": {
       "noContact": "No contact",
       "won": "Won",
-      "lost": "Lost"
+      "lost": "Lost",
+      "noValue": "No value set"
     },
     "form": {
       "editDeal": "Edit Deal",
       "newDeal": "New Deal",
+      "sectionEssentials": "Essentials",
+      "sectionValue": "Value",
+      "sectionProgress": "Progress",
       "title": "Title",
       "titlePlaceholder": "Deal title",
       "contact": "Contact",
@@ -678,8 +682,14 @@
       "notes": "Notes",
       "notesPlaceholder": "Add notes...",
       "status": "Status",
-      "markAsWon": "Mark as Won",
-      "markAsLost": "Mark as Lost",
+      "markAsWon": "Won",
+      "markAsLost": "Lost",
+      "items": {
+        "title": "Catalog items",
+        "addPlaceholder": "Add an item…",
+        "emptyCatalogCta": "No catalog items yet — add one in Settings",
+        "toastFailed": "Couldn't update the item"
+      },
       "reopenDeal": "Reopen deal",
       "cancel": "Cancel",
       "saving": "Saving...",

@@ -1,15 +1,17 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
-import { CURRENCIES } from "@/lib/currency";
+import { CURRENCIES, formatCurrency } from "@/lib/currency";
 import type {
+  CatalogItem,
   Contact,
   Conversation,
   Deal,
   DealStatus,
+  OrderItem,
   PipelineStage,
   Profile,
 } from "@/types";
@@ -24,12 +26,22 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Check,
   X,
   Trash2,
   MessageSquare,
   DollarSign,
   Loader2,
+  Package,
+  Minus,
+  Plus,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslations } from "next-intl";
@@ -42,6 +54,18 @@ interface DealFormProps {
   stages: PipelineStage[];
   defaultStageId?: string;
   onSaved: () => void;
+}
+
+// Section wrapper — every group of fields gets a small uppercase label
+// and consistent spacing so the sheet reads as scannable chunks
+// instead of one long undifferentiated list of inputs.
+function FormSection({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="space-y-3">
+      <p className="text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">{title}</p>
+      {children}
+    </div>
+  );
 }
 
 export function DealForm({
@@ -70,6 +94,10 @@ export function DealForm({
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [linkedConversation, setLinkedConversation] =
     useState<Conversation | null>(null);
+
+  const [catalogItems, setCatalogItems] = useState<CatalogItem[]>([]);
+  const [orderItems, setOrderItems] = useState<OrderItem[]>([]);
+  const [itemsBusy, setItemsBusy] = useState(false);
 
   const [saving, setSaving] = useState(false);
   const [statusAction, setStatusAction] = useState<DealStatus | null>(null);
@@ -112,18 +140,53 @@ export function DealForm({
     if (!open) return;
     let cancelled = false;
     (async () => {
-      const [c, p] = await Promise.all([
+      const [c, p, ci] = await Promise.all([
         supabase.from("contacts").select("*").order("name"),
         supabase.from("profiles").select("*").order("full_name"),
+        supabase.from("catalog_items").select("*").eq("is_active", true).order("position"),
       ]);
       if (cancelled) return;
       setContacts((c.data ?? []) as Contact[]);
       setProfiles((p.data ?? []) as Profile[]);
+      setCatalogItems((ci.data ?? []) as CatalogItem[]);
     })();
     return () => {
       cancelled = true;
     };
   }, [open, supabase]);
+
+  // Catalog items attached to this deal, via the Order the API routes
+  // below create/maintain on first add (orders.deal_id). Only existing
+  // deals have somewhere to attach items to — a not-yet-saved deal
+  // shows no items section at all (see the JSX below).
+  useEffect(() => {
+    if (!open || !deal) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setOrderItems([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const { data: order } = await supabase
+        .from("orders")
+        .select("id")
+        .eq("deal_id", deal.id)
+        .maybeSingle();
+      if (!order) {
+        if (!cancelled) setOrderItems([]);
+        return;
+      }
+      const { data: items } = await supabase
+        .from("order_items")
+        .select("*")
+        .eq("order_id", order.id)
+        .order("created_at", { ascending: true });
+      if (!cancelled) setOrderItems((items as OrderItem[] | null) ?? []);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, deal, supabase]);
 
   // Fetch linked conversation for the selected contact (newest open one).
   // Clearing on no-selection is sync with prop state; the populated
@@ -150,6 +213,62 @@ export function DealForm({
       cancelled = true;
     };
   }, [open, contactId, supabase]);
+
+  const applyItemsResponse = useCallback((items: OrderItem[]) => {
+    setOrderItems(items);
+    const totalCents = items.reduce((s, i) => s + i.total_cents, 0);
+    // The Value field mirrors the items total but stays a plain
+    // editable input — an agent can still hand-adjust it afterward
+    // (a discount, a rounded quote) without the items list fighting
+    // back on every keystroke.
+    setValue(String(totalCents / 100));
+  }, []);
+
+  const addCatalogItem = useCallback(
+    async (catalogItemId: string) => {
+      if (!deal) return;
+      setItemsBusy(true);
+      try {
+        const res = await fetch(`/api/deals/${deal.id}/items`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ catalog_item_id: catalogItemId }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          toast.error(data.error ?? t("items.toastFailed"));
+          return;
+        }
+        applyItemsResponse((data.items ?? []) as OrderItem[]);
+      } finally {
+        setItemsBusy(false);
+      }
+    },
+    [deal, applyItemsResponse, t],
+  );
+
+  const setItemQuantity = useCallback(
+    async (itemId: string, quantity: number) => {
+      if (!deal) return;
+      setItemsBusy(true);
+      try {
+        const res = await fetch(`/api/deals/${deal.id}/items/${itemId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ quantity }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          toast.error(data.error ?? t("items.toastFailed"));
+          return;
+        }
+        applyItemsResponse((data.items ?? []) as OrderItem[]);
+      } finally {
+        setItemsBusy(false);
+      }
+    },
+    [deal, applyItemsResponse, t],
+  );
 
   async function handleSave() {
     if (!title.trim() || !contactId || !stageId) {
@@ -245,6 +364,11 @@ export function DealForm({
     onSaved();
   }
 
+  const itemsTotalCents = orderItems.reduce((s, i) => s + i.total_cents, 0);
+  const availableCatalogItems = catalogItems.filter(
+    (c) => !orderItems.some((oi) => oi.catalog_item_id === c.id),
+  );
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
@@ -258,142 +382,228 @@ export function DealForm({
             </SheetTitle>
           </SheetHeader>
 
-          <div className="flex-1 overflow-y-auto p-4 space-y-4">
-            <div className="grid gap-2">
-              <Label className="text-muted-foreground">{t("title")}</Label>
-              <Input
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder={t("titlePlaceholder")}
-                className="border-border bg-muted text-foreground"
-              />
-            </div>
-
-            <div className="grid gap-2">
-              <Label className="text-muted-foreground">{t("contact")}</Label>
-              <select
-                value={contactId}
-                onChange={(e) => setContactId(e.target.value)}
-                className="h-9 w-full rounded-lg border border-border bg-muted px-2.5 text-sm text-foreground outline-none focus:border-primary focus:ring-1 focus:ring-primary"
-              >
-                <option value="">{t("selectContact")}</option>
-                {contacts.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name || c.phone}
-                  </option>
-                ))}
-              </select>
-
-              {linkedConversation && (
-                <Link
-                  href="/inbox"
-                  className="mt-1 inline-flex items-center gap-1.5 self-start rounded-md bg-primary/10 px-2 py-1 text-xs text-primary hover:bg-primary/20"
-                >
-                  <MessageSquare className="h-3 w-3" />
-                  {t("linkToConversation")}
-                </Link>
-              )}
-            </div>
-
-            <div className="grid grid-cols-[1fr_110px] gap-3">
+          <div className="flex-1 overflow-y-auto p-4 space-y-5">
+            <FormSection title={t("sectionEssentials")}>
               <div className="grid gap-2">
-                <Label className="text-muted-foreground">{t("value")}</Label>
-                <div className="relative">
-                  <DollarSign className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-                  <Input
-                    type="number"
-                    value={value}
-                    onChange={(e) => setValue(e.target.value)}
-                    placeholder="0"
-                    className="border-border bg-muted pl-7 text-foreground"
-                  />
+                <Label className="text-muted-foreground">{t("title")}</Label>
+                <Input
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder={t("titlePlaceholder")}
+                  className="border-border bg-muted text-foreground"
+                />
+              </div>
+
+              <div className="grid gap-2">
+                <Label className="text-muted-foreground">{t("contact")}</Label>
+                <Select value={contactId || "__none__"} onValueChange={(v) => setContactId(v === "__none__" ? "" : (v ?? ""))}>
+                  <SelectTrigger className="bg-muted">
+                    <SelectValue placeholder={t("selectContact")} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">{t("selectContact")}</SelectItem>
+                    {contacts.map((c) => (
+                      <SelectItem key={c.id} value={c.id}>
+                        {c.name || c.phone}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
+                {linkedConversation && (
+                  <Link
+                    href="/inbox"
+                    className="mt-1 inline-flex items-center gap-1.5 self-start rounded-md bg-primary/10 px-2 py-1 text-xs text-primary hover:bg-primary/20"
+                  >
+                    <MessageSquare className="h-3 w-3" />
+                    {t("linkToConversation")}
+                  </Link>
+                )}
+              </div>
+            </FormSection>
+
+            <FormSection title={t("sectionValue")}>
+              {deal && (
+                <div className="rounded-lg border border-border bg-muted/40 p-3">
+                  <div className="mb-2 flex items-center justify-between">
+                    <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                      <Package className="h-3.5 w-3.5" />
+                      {t("items.title")}
+                    </span>
+                    {itemsTotalCents > 0 && (
+                      <span className="text-xs font-semibold text-primary">
+                        {formatCurrency(itemsTotalCents / 100, currency)}
+                      </span>
+                    )}
+                  </div>
+
+                  {orderItems.length > 0 && (
+                    <ul className="mb-2 space-y-1.5">
+                      {orderItems.map((line) => (
+                        <li key={line.id} className="flex items-center gap-2 text-xs">
+                          <span className="min-w-0 flex-1 truncate text-foreground">{line.name_snapshot}</span>
+                          <div className="flex shrink-0 items-center gap-1">
+                            <button
+                              type="button"
+                              disabled={itemsBusy}
+                              onClick={() => setItemQuantity(line.id, line.quantity - 1)}
+                              className="flex h-5 w-5 items-center justify-center rounded border border-border text-muted-foreground hover:bg-muted disabled:opacity-50"
+                            >
+                              <Minus className="h-3 w-3" />
+                            </button>
+                            <span className="w-4 text-center text-foreground">{line.quantity}</span>
+                            <button
+                              type="button"
+                              disabled={itemsBusy}
+                              onClick={() => setItemQuantity(line.id, line.quantity + 1)}
+                              className="flex h-5 w-5 items-center justify-center rounded border border-border text-muted-foreground hover:bg-muted disabled:opacity-50"
+                            >
+                              <Plus className="h-3 w-3" />
+                            </button>
+                          </div>
+                          <span className="w-16 shrink-0 text-right text-muted-foreground">
+                            {formatCurrency(line.total_cents / 100, currency)}
+                          </span>
+                          <button
+                            type="button"
+                            disabled={itemsBusy}
+                            onClick={() => setItemQuantity(line.id, 0)}
+                            className="shrink-0 text-red-400 hover:text-red-300 disabled:opacity-50"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+
+                  {availableCatalogItems.length > 0 ? (
+                    <Select
+                      value=""
+                      onValueChange={(v) => v && addCatalogItem(v)}
+                      disabled={itemsBusy}
+                    >
+                      <SelectTrigger className="h-8 bg-card text-xs">
+                        <SelectValue placeholder={t("items.addPlaceholder")} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {availableCatalogItems.map((c) => (
+                          <SelectItem key={c.id} value={c.id}>
+                            {c.name} — {formatCurrency(c.price_cents / 100, c.currency)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : catalogItems.length === 0 ? (
+                    <Link href="/settings?tab=catalog" className="text-xs text-primary hover:underline">
+                      {t("items.emptyCatalogCta")}
+                    </Link>
+                  ) : null}
+                </div>
+              )}
+
+              <div className="grid grid-cols-[1fr_110px] gap-3">
+                <div className="grid gap-2">
+                  <Label className="text-muted-foreground">{t("value")}</Label>
+                  <div className="relative">
+                    <DollarSign className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      type="number"
+                      value={value}
+                      onChange={(e) => setValue(e.target.value)}
+                      placeholder="0"
+                      className="border-border bg-muted pl-7 text-foreground"
+                    />
+                  </div>
+                </div>
+                <div className="grid gap-2">
+                  <Label className="text-muted-foreground">{t("currency")}</Label>
+                  <Select value={currency} onValueChange={(v) => v && setCurrency(v)}>
+                    <SelectTrigger className="bg-muted">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {CURRENCIES.map((c) => (
+                        <SelectItem key={c.code} value={c.code}>
+                          {c.code}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
-              <div className="grid gap-2">
-                <Label className="text-muted-foreground">{t("currency")}</Label>
-                <select
-                  value={currency}
-                  onChange={(e) => setCurrency(e.target.value)}
-                  className="h-9 w-full rounded-lg border border-border bg-muted px-2.5 text-sm text-foreground outline-none focus:border-primary"
-                >
-                  {CURRENCIES.map((c) => (
-                    <option key={c.code} value={c.code}>
-                      {c.code}
-                    </option>
-                  ))}
-                </select>
+            </FormSection>
+
+            <FormSection title={t("sectionProgress")}>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="grid gap-2">
+                  <Label className="text-muted-foreground">{t("stage")}</Label>
+                  <Select value={stageId} onValueChange={(v) => v && setStageId(v)}>
+                    <SelectTrigger className="bg-muted">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {stages.map((s) => (
+                        <SelectItem key={s.id} value={s.id}>
+                          {s.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="grid gap-2">
+                  <Label className="text-muted-foreground">{t("assignedTo")}</Label>
+                  <Select value={assignedTo || "__none__"} onValueChange={(v) => setAssignedTo(v === "__none__" ? "" : (v ?? ""))}>
+                    <SelectTrigger className="bg-muted">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">{t("unassigned")}</SelectItem>
+                      {profiles.map((p) => (
+                        <SelectItem key={p.id} value={p.id}>
+                          {p.full_name || p.email}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
-            </div>
 
-            <div className="grid gap-2">
-              <Label className="text-muted-foreground">{t("expectedCloseDate")}</Label>
-              <Input
-                type="date"
-                value={expectedCloseDate}
-                onChange={(e) => setExpectedCloseDate(e.target.value)}
-                className="border-border bg-muted text-foreground"
-              />
-            </div>
+              <div className="grid gap-2">
+                <Label className="text-muted-foreground">{t("expectedCloseDate")}</Label>
+                <Input
+                  type="date"
+                  value={expectedCloseDate}
+                  onChange={(e) => setExpectedCloseDate(e.target.value)}
+                  className="border-border bg-muted text-foreground"
+                />
+              </div>
+            </FormSection>
 
-            <div className="grid gap-2">
-              <Label className="text-muted-foreground">{t("stage")}</Label>
-              <select
-                value={stageId}
-                onChange={(e) => setStageId(e.target.value)}
-                className="h-9 w-full rounded-lg border border-border bg-muted px-2.5 text-sm text-foreground outline-none focus:border-primary"
-              >
-                {stages.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="grid gap-2">
-              <Label className="text-muted-foreground">{t("assignedTo")}</Label>
-              <select
-                value={assignedTo}
-                onChange={(e) => setAssignedTo(e.target.value)}
-                className="h-9 w-full rounded-lg border border-border bg-muted px-2.5 text-sm text-foreground outline-none focus:border-primary"
-              >
-                <option value="">{t("unassigned")}</option>
-                {profiles.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.full_name || p.email}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="grid gap-2">
-              <Label className="text-muted-foreground">{t("notes")}</Label>
+            <FormSection title={t("notes")}>
               <Textarea
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
                 placeholder={t("notesPlaceholder")}
-                className="min-h-[100px] border-border bg-muted text-foreground"
+                className="min-h-[80px] border-border bg-muted text-foreground"
               />
-            </div>
+            </FormSection>
 
             {deal && (
-              <div className="space-y-2 rounded-lg border border-border bg-muted/50 p-3">
-                <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                  {t("status")}
-                </p>
-                <div className="flex gap-2">
+              <FormSection title={t("status")}>
+                <div className="grid grid-cols-2 gap-2">
                   <Button
                     type="button"
                     onClick={() => handleStatusChange("won")}
                     disabled={!!statusAction || deal.status === "won"}
-                    className="flex-1 bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                    className="bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
                   >
                     {statusAction === "won" ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
                     ) : (
                       <>
-                        <Check className="mr-1 h-4 w-4" />
-                        {t("markAsWon")}
+                        <Check className="mr-1 h-4 w-4 shrink-0" />
+                        <span className="truncate">{t("markAsWon")}</span>
                       </>
                     )}
                   </Button>
@@ -401,14 +611,14 @@ export function DealForm({
                     type="button"
                     onClick={() => handleStatusChange("lost")}
                     disabled={!!statusAction || deal.status === "lost"}
-                    className="flex-1 bg-red-600 text-white hover:bg-red-700 disabled:opacity-50"
+                    className="bg-red-600 text-white hover:bg-red-700 disabled:opacity-50"
                   >
                     {statusAction === "lost" ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
                     ) : (
                       <>
-                        <X className="mr-1 h-4 w-4" />
-                        {t("markAsLost")}
+                        <X className="mr-1 h-4 w-4 shrink-0" />
+                        <span className="truncate">{t("markAsLost")}</span>
                       </>
                     )}
                   </Button>
@@ -424,7 +634,7 @@ export function DealForm({
                     {t("reopenDeal")}
                   </Button>
                 )}
-              </div>
+              </FormSection>
             )}
           </div>
 

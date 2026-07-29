@@ -659,11 +659,15 @@
     "card": {
       "noContact": "Sem contato",
       "won": "Ganho",
-      "lost": "Perdido"
+      "lost": "Perdido",
+      "noValue": "Sem valor definido"
     },
     "form": {
       "editDeal": "Editar negócio",
       "newDeal": "Novo negócio",
+      "sectionEssentials": "Essenciais",
+      "sectionValue": "Valor",
+      "sectionProgress": "Andamento",
       "title": "Título",
       "titlePlaceholder": "Título do negócio",
       "contact": "Contato",
@@ -678,8 +682,14 @@
       "notes": "Notas",
       "notesPlaceholder": "Adicione notas...",
       "status": "Status",
-      "markAsWon": "Marcar como ganho",
-      "markAsLost": "Marcar como perdido",
+      "markAsWon": "Ganho",
+      "markAsLost": "Perdido",
+      "items": {
+        "title": "Itens do catálogo",
+        "addPlaceholder": "Adicionar um item…",
+        "emptyCatalogCta": "Nenhum item no catálogo ainda — adicione em Configurações",
+        "toastFailed": "Não foi possível atualizar o item"
+      },
       "reopenDeal": "Reabrir negócio",
       "cancel": "Cancelar",
       "saving": "Salvando...",

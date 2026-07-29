@@ -225,9 +225,14 @@ function StageColumn({
           {deals.length}
         </span>
       </div>
-      <p className="text-xs text-muted-foreground">
-        {formatCurrency(totalValue, currency)}
-      </p>
+      {/* Only shown once the column actually carries value — an "R$ 0"
+          on every empty/unpriced column read as broken rather than
+          informative. */}
+      {totalValue > 0 && (
+        <p className="text-xs font-medium text-muted-foreground">
+          {formatCurrency(totalValue, currency)}
+        </p>
+      )}
 
       <div
         ref={setNodeRef}
