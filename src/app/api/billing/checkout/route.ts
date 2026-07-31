@@ -168,6 +168,7 @@ export async function POST(request: Request) {
         billing_type: billingType,
         gateway_customer_id: customer.id,
         coupon_id: couponId,
+        expected_amount_cents: price.finalCents,
       })
       .select('id')
       .single()

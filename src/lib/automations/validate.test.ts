@@ -254,17 +254,23 @@ describe("validateTriggerForActivation", () => {
     ).toEqual([]);
   });
 
-  it("requires schedule on time_based triggers", () => {
+  it("rejects time_based triggers until a durable scheduler exists", () => {
     expect(validateTriggerForActivation("time_based", {})).toEqual([
       {
-        path: "trigger.schedule",
-        message: "schedule is required",
-        messageKey: "trigger.scheduleRequired",
+        path: "trigger.type",
+        message: "scheduled triggers are not available yet",
+        messageKey: "trigger.unsupported",
       },
     ]);
     expect(
       validateTriggerForActivation("time_based", { schedule: "0 9 * * *" }),
-    ).toEqual([]);
+    ).toEqual([
+      {
+        path: "trigger.type",
+        message: "scheduled triggers are not available yet",
+        messageKey: "trigger.unsupported",
+      },
+    ]);
   });
 
   it("requires tag_id on tag_added triggers", () => {

@@ -11,6 +11,11 @@ vi.mock("@/lib/flows/admin-client", () => ({
   supabaseAdmin: () => ({ __isMockAdminClient: true }),
 }));
 
+const getAccountEntitlement = vi.fn();
+vi.mock("@/lib/billing/account-entitlement", () => ({
+  getAccountEntitlement: (...args: unknown[]) => getAccountEntitlement(...args),
+}));
+
 // Mock the store so we control which row a hash resolves to.
 const findActiveKeyByHash = vi.fn<(hash: string) => Promise<ApiKeyRow | null>>();
 const touchLastUsed = vi.fn();
@@ -47,6 +52,13 @@ beforeEach(() => {
   __resetRateLimitForTests();
   findActiveKeyByHash.mockReset();
   touchLastUsed.mockReset();
+  getAccountEntitlement.mockReset();
+  getAccountEntitlement.mockResolvedValue({
+    hasAccess: true,
+    reason: "active",
+    status: "active",
+    expiresAt: "2099-01-01T00:00:00.000Z",
+  });
 });
 
 afterEach(() => {
@@ -115,6 +127,23 @@ describe("requireApiKey", () => {
     findActiveKeyByHash.mockResolvedValue(row({ scopes: ["messages:send"] }));
     const ctx = await requireApiKey(reqWith(`Bearer ${KEY}`), "messages:send");
     expect(ctx.accountId).toBe("acct-1");
+  });
+
+  it("402s when the key is valid but the account entitlement expired", async () => {
+    findActiveKeyByHash.mockResolvedValue(row());
+    getAccountEntitlement.mockResolvedValue({
+      hasAccess: false,
+      reason: "expired",
+      status: "active",
+      expiresAt: "2020-01-01T00:00:00.000Z",
+    });
+
+    await expectApiError(
+      requireApiKey(reqWith(`Bearer ${KEY}`)),
+      "payment_required",
+      402,
+    );
+    expect(touchLastUsed).not.toHaveBeenCalled();
   });
 
   it("429s once the per-key budget is exhausted", async () => {

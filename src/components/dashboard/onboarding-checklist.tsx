@@ -12,6 +12,9 @@ interface ChecklistItem {
   key: string;
   href: string;
   done: boolean;
+  /** Optional steps stay visible but do not make progress impossible
+   *  for solo entrepreneurs. */
+  optional?: boolean;
   /** Shown instead of the description when the step doesn't apply
    *  (e.g. template approval on an unofficial connection). */
   skipNote?: string;
@@ -46,22 +49,30 @@ export function OnboardingChecklist() {
     whatsappConnected: boolean;
     templateApproved: boolean;
     hasTeammate: boolean;
+    hasActiveFlow: boolean;
+    hasDeal: boolean;
   } | null>(null);
 
-  const loadDismissState = useCallback(async () => {
+  useEffect(() => {
     if (!accountId) return;
     const supabase = createClient();
-    const { data } = await supabase
-      .from("accounts")
-      .select("onboarding_dismissed_at")
-      .eq("id", accountId)
-      .maybeSingle();
-    setDismissed(!!data?.onboarding_dismissed_at);
-  }, [accountId]);
+    let cancelled = false;
 
-  useEffect(() => {
-    void loadDismissState();
-  }, [loadDismissState]);
+    void (async () => {
+      const { data } = await supabase
+        .from("accounts")
+        .select("onboarding_dismissed_at")
+        .eq("id", accountId)
+        .maybeSingle();
+      if (!cancelled) {
+        setDismissed(!!data?.onboarding_dismissed_at);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [accountId]);
 
   useEffect(() => {
     // Skip entirely once dismissed — this is the query-cost guard
@@ -73,18 +84,29 @@ export function OnboardingChecklist() {
     let cancelled = false;
 
     (async () => {
-      const [{ data: whatsappConfig }, { data: baileysConn }, { count: approvedTemplates }, { count: profiles }] =
+      const [
+        { data: whatsappConfig },
+        { data: baileysConn },
+        { count: approvedTemplates },
+        { count: profiles },
+        { count: activeFlows },
+        { count: deals },
+      ] =
         await Promise.all([
           supabase.from("whatsapp_config").select("id").eq("account_id", accountId).maybeSingle(),
           supabase.from("baileys_connections").select("status").eq("account_id", accountId).eq("status", "connected").maybeSingle(),
           supabase.from("message_templates").select("id", { count: "exact", head: true }).eq("account_id", accountId).eq("status", "APPROVED"),
           supabase.from("profiles").select("id", { count: "exact", head: true }).eq("account_id", accountId),
+          supabase.from("flows").select("id", { count: "exact", head: true }).eq("account_id", accountId).eq("status", "active"),
+          supabase.from("deals").select("id", { count: "exact", head: true }).eq("account_id", accountId),
         ]);
       if (cancelled) return;
       setChecks({
         whatsappConnected: !!whatsappConfig || !!baileysConn,
         templateApproved: (approvedTemplates ?? 0) > 0,
         hasTeammate: (profiles ?? 0) > 1,
+        hasActiveFlow: (activeFlows ?? 0) > 0,
+        hasDeal: (deals ?? 0) > 0,
       });
     })();
 
@@ -109,15 +131,20 @@ export function OnboardingChecklist() {
     if (!checks) return [];
     return [
       { key: "whatsapp", href: "/settings?tab=whatsapp", done: checks.whatsappConnected },
-      { key: "flow", href: "/flows", done: false },
+      { key: "flow", href: "/flows", done: checks.hasActiveFlow },
       {
         key: "templates",
         href: "/settings?tab=templates",
         done: isBaileys || checks.templateApproved,
         skipNote: isBaileys ? t("templatesSkipBaileys") : undefined,
       },
-      { key: "pipeline", href: "/pipelines", done: false },
-      { key: "team", href: "/settings?tab=members", done: checks.hasTeammate },
+      { key: "pipeline", href: "/pipelines", done: checks.hasDeal },
+      {
+        key: "team",
+        href: "/settings?tab=members",
+        done: checks.hasTeammate,
+        optional: true,
+      },
     ];
   }, [checks, isBaileys, t]);
 
@@ -125,7 +152,8 @@ export function OnboardingChecklist() {
   // no layout jump either way.
   if (dismissed !== false || !checks) return null;
 
-  const doneCount = items.filter((i) => i.done).length;
+  const requiredItems = items.filter((item) => !item.optional);
+  const doneCount = requiredItems.filter((item) => item.done).length;
 
   return (
     <div className="rounded-xl border border-primary/30 bg-primary/5 p-4">
@@ -135,7 +163,7 @@ export function OnboardingChecklist() {
           <div>
             <h2 className="text-sm font-semibold text-foreground">{t("title")}</h2>
             <p className="text-xs text-muted-foreground">
-              {t("subtitle", { done: doneCount, total: items.length })}
+              {t("subtitle", { done: doneCount, total: requiredItems.length })}
             </p>
           </div>
         </div>

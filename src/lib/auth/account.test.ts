@@ -66,9 +66,19 @@ vi.mock("@/lib/supabase/server", () => ({
   createClient: () => createClient(),
 }));
 
-const { getCurrentAccount, UnauthorizedError, ForbiddenError } = await import(
-  "./account"
-);
+const getAccountEntitlement = vi.fn();
+vi.mock("@/lib/billing/account-entitlement", () => ({
+  getAccountEntitlement: (...args: unknown[]) => getAccountEntitlement(...args),
+}));
+
+const {
+  getCurrentAccount,
+  requireRole,
+  UnauthorizedError,
+  ForbiddenError,
+  PaymentRequiredError,
+  toErrorResponse,
+} = await import("./account");
 
 afterEach(() => {
   vi.clearAllMocks();
@@ -172,5 +182,59 @@ describe("getCurrentAccount", () => {
     await expect(getCurrentAccount()).rejects.toThrow(
       "Perfil não está vinculado a uma conta",
     );
+  });
+});
+
+describe("requireRole entitlement", () => {
+  function ownerClient() {
+    return makeClient({
+      user: { id: "user-1" },
+      byTable: {
+        profiles: {
+          data: { account_id: "acct-1", account_role: "owner" },
+          error: null,
+        },
+        accounts: { data: { id: "acct-1", name: "Acme" }, error: null },
+      },
+    }).client;
+  }
+
+  it("allows a role-qualified caller with an active entitlement", async () => {
+    createClient.mockReturnValue(ownerClient());
+    getAccountEntitlement.mockResolvedValue({
+      hasAccess: true,
+      reason: "active",
+      status: "active",
+      expiresAt: "2026-07-30T00:00:00.000Z",
+    });
+
+    await expect(requireRole("agent")).resolves.toMatchObject({
+      accountId: "acct-1",
+      role: "owner",
+    });
+  });
+
+  it("rejects expensive mutations when the entitlement is expired", async () => {
+    createClient.mockReturnValue(ownerClient());
+    getAccountEntitlement.mockResolvedValue({
+      hasAccess: false,
+      reason: "expired",
+      status: "active",
+      expiresAt: "2026-07-28T00:00:00.000Z",
+    });
+
+    await expect(requireRole("agent")).rejects.toBeInstanceOf(
+      PaymentRequiredError,
+    );
+    expect(toErrorResponse(new PaymentRequiredError()).status).toBe(402);
+  });
+
+  it("requires an explicit opt-out for billing/recovery mutations", async () => {
+    createClient.mockReturnValue(ownerClient());
+
+    await expect(
+      requireRole("owner", { requireEntitlement: false }),
+    ).resolves.toMatchObject({ accountId: "acct-1" });
+    expect(getAccountEntitlement).not.toHaveBeenCalled();
   });
 });

@@ -61,7 +61,9 @@
     }
   },
   "Sidebar": {
-    "dashboard": "Dashboard",
+    "dashboard": "Analytics",
+    "today": "Today",
+    "tasks": "Tasks",
     "inbox": "Inbox",
     "notifications": "Notifications",
     "contacts": "Contacts",
@@ -91,7 +93,9 @@
     "menuSignOut": "Sign out"
   },
   "Header": {
-    "dashboard": "Dashboard",
+    "dashboard": "Analytics",
+    "today": "Today",
+    "tasks": "Tasks",
     "inbox": "Inbox",
     "notifications": "Notifications",
     "contacts": "Contacts",
@@ -151,7 +155,7 @@
   },
   "Dashboard": {
     "page": {
-      "title": "Dashboard",
+      "title": "Analytics",
       "description": "Live analytics across conversations, contacts, deals, broadcasts, and automations.",
       "activeConversations": "Active Conversations",
       "newContactsToday": "New Contacts Today",
@@ -421,6 +425,134 @@
       "networkError": "Couldn’t reach the server."
     }
   },
+  "Tasks": {
+    "page": {
+      "title": "Tasks",
+      "description": "Organize follow-ups, pending work, and your team's next steps."
+    },
+    "today": {
+      "title": "Today",
+      "description": "See what needs attention now and move work forward with context."
+    },
+    "filters": {
+      "assigneeLabel": "Filter by assignee",
+      "mine": "Mine",
+      "all": "All"
+    },
+    "quickAdd": {
+      "title": "Quickly add a task",
+      "inputLabel": "New task title",
+      "placeholder": "E.g. Follow up with the customer about the proposal",
+      "today": "Today",
+      "tomorrow": "Tomorrow",
+      "noDate": "No date",
+      "moreOptions": "More options",
+      "adding": "Adding...",
+      "add": "Add"
+    },
+    "counters": {
+      "open": "Open",
+      "overdue": "Overdue",
+      "today": "Due today",
+      "completed": "Completed"
+    },
+    "sections": {
+      "overdue": "Overdue",
+      "overdueDescription": "Pending from previous days",
+      "today": "Today",
+      "todayDescription": "Today's priorities",
+      "upcoming": "Upcoming",
+      "upcomingDescription": "Scheduled for a future date",
+      "unscheduled": "No date",
+      "unscheduledDescription": "Pending work to plan",
+      "completed": "Completed",
+      "completedDescription": "Reopen them if more work is needed",
+      "empty": "No tasks in this section."
+    },
+    "priority": {
+      "low": "Low",
+      "normal": "Normal",
+      "high": "High",
+      "urgent": "Urgent"
+    },
+    "row": {
+      "noDate": "No date",
+      "unassigned": "Unassigned",
+      "unknownPerson": "Unnamed person",
+      "unknownContact": "Unnamed contact",
+      "linkedContact": "Linked contact",
+      "linkedDeal": "Linked deal"
+    },
+    "editor": {
+      "createTitle": "New task",
+      "editTitle": "Edit task",
+      "createDescription": "Add context, an assignee, and links when you need them.",
+      "editDescription": "Update the next step without losing its history.",
+      "titleLabel": "Title",
+      "titlePlaceholder": "What needs to be done?",
+      "descriptionLabel": "Description",
+      "descriptionPlaceholder": "Context or expected outcome (optional)",
+      "priorityLabel": "Priority",
+      "dueLabel": "Date and time",
+      "assigneeLabel": "Assignee",
+      "unassigned": "Unassigned",
+      "contactLabel": "Contact",
+      "noContact": "No contact",
+      "dealLabel": "Deal",
+      "noDeal": "No deal",
+      "resourcesWarning": "Some options could not be loaded. You can still save the available fields."
+    },
+    "actions": {
+      "refresh": "Refresh",
+      "retry": "Try again",
+      "save": "Save task",
+      "saving": "Saving...",
+      "close": "Close",
+      "loadMore": "Load more",
+      "loadingMore": "Loading...",
+      "completeTask": "Complete {title}",
+      "reopenTask": "Reopen {title}",
+      "editTask": "Edit {title}",
+      "cancelTask": "Cancel {title}",
+      "cancel": "Cancel task",
+      "canceling": "Canceling..."
+    },
+    "states": {
+      "loading": "Loading tasks...",
+      "loadError": "Tasks could not be loaded.",
+      "loadErrorTitle": "Failed to load tasks",
+      "saveError": "The task could not be saved.",
+      "readOnlyShort": "Read-only",
+      "readOnlyTitle": "Read-only view",
+      "readOnlyDescription": "Your role can follow tasks, but cannot create, edit, complete, or cancel them."
+    },
+    "toast": {
+      "created": "Task created",
+      "updated": "Task updated",
+      "completed": "Task completed",
+      "reopened": "Task reopened",
+      "canceled": "Task canceled"
+    },
+    "cancel": {
+      "title": "Cancel task",
+      "description": "Cancel “{title}”? It will leave active lists, but its history will be preserved."
+    },
+    "activity": {
+      "title": "Today's activity",
+      "description": "Recent team updates",
+      "errorTitle": "Failed to load activity",
+      "emptyTitle": "The day is just getting started",
+      "emptyDescription": "Task, deal, order, and note updates will appear here.",
+      "system": "System"
+    },
+    "widget": {
+      "title": "My day",
+      "description": "{overdue} overdue · {today} due today",
+      "empty": "Everything is on track.",
+      "error": "Your tasks could not be loaded.",
+      "openToday": "Open Today"
+    }
+  },
   "Contacts": {
     "page": {
       "title": "Contacts",
@@ -511,6 +643,7 @@
         "notes": "Notes",
         "custom": "Custom Fields",
         "deals": "Deals",
+        "tasks": "Tasks",
         "tags": "Tags",
         "noTags": "No tags",
         "noDeals": "No deals",
@@ -780,6 +913,7 @@
       "sending": "Sending",
       "sent": "Sent",
       "failed": "Failed",
+      "skipped": "Suppressed",
       "pending": "Pending",
       "delivered": "Delivered",
       "read": "Read",
@@ -789,6 +923,8 @@
     "detail": {
       "backToBroadcasts": "Back to Broadcasts",
       "notFound": "Broadcast not found",
+      "allSkipped": "No messages were sent: {count} recipient(s) had opted out of WhatsApp marketing.",
+      "marketingOptOutReason": "Contact opted out of WhatsApp marketing",
       "template": "Template: {name}",
       "createdAt": "Created {date}",
       "deletePrompt": "Delete this broadcast?",
@@ -812,7 +948,7 @@
         "sent": "Sent",
         "delivered": "Delivered",
         "read": "Read",
-        "error": "Error"
+        "error": "Reason / detail"
       },
       "stats": {
         "totalRecipients": "Total Recipients",
@@ -820,7 +956,8 @@
         "delivered": "Delivered",
         "read": "Read",
         "replied": "Replied",
-        "failed": "Failed"
+        "failed": "Failed",
+        "skipped": "Suppressed"
       },
       "toastFailedDelete": "Failed to delete: {error}",
       "toastDeleted": "Broadcast deleted"
@@ -1241,6 +1378,7 @@
           "keywordEmpty": "Keywords cannot be empty.",
           "matchTypeInvalid": "Match type must be \"exact\" or \"contains\".",
           "scheduleRequired": "A schedule is required.",
+          "unsupported": "This trigger is not available yet.",
           "tagRequired": "A tag is required.",
           "replyIdRequired": "At least one reply id is required.",
           "replyIdEmpty": "Reply ids cannot be empty.",
@@ -1615,8 +1753,9 @@
     "fullNamePlaceholder": "John Doe",
     "emailLabel": "Email",
     "emailPlaceholder": "you@example.com",
-    "phoneLabel": "WhatsApp number",
+    "phoneLabel": "WhatsApp number (optional)",
     "phonePlaceholder": "+1 555 123 4567",
+    "marketingConsent": "I agree to receive onboarding tips and offers from IMCRM on WhatsApp. I can opt out at any time.",
     "passwordLabel": "Password",
     "passwordPlaceholder": "At least 6 characters",
     "confirmPasswordLabel": "Confirm password",

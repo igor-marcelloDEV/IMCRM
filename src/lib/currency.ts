@@ -14,6 +14,10 @@
  *  BRL — IMCRM's billing (see src/lib/billing/) and primary market
  *  are both Brazilian; new accounts default here too (migration 043). */
 export const DEFAULT_CURRENCY = "BRL";
+/** Formatting must not depend on the locale of the server that happened
+ *  to render the page. Deployments can override it explicitly. */
+export const DEFAULT_FORMAT_LOCALE =
+  process.env.NEXT_PUBLIC_APP_LOCALE || "pt-BR";
 
 export interface CurrencyOption {
   /** ISO-4217 code, e.g. "USD". Stored verbatim in the DB. */
@@ -67,7 +71,7 @@ export function formatCurrency(
   const code = (currency || DEFAULT_CURRENCY).trim();
   const amount = Number(value) || 0;
   try {
-    return new Intl.NumberFormat(undefined, {
+    return new Intl.NumberFormat(DEFAULT_FORMAT_LOCALE, {
       style: "currency",
       currency: code,
       minimumFractionDigits: 0,
@@ -76,7 +80,7 @@ export function formatCurrency(
   } catch {
     // Invalid ISO code — show the raw code + grouped number so the
     // value is still legible instead of throwing.
-    return `${code} ${new Intl.NumberFormat(undefined, {
+    return `${code} ${new Intl.NumberFormat(DEFAULT_FORMAT_LOCALE, {
       maximumFractionDigits: 0,
     }).format(amount)}`;
   }

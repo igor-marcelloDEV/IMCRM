@@ -33,8 +33,15 @@
  */
 
 import { supabaseAdmin } from "./admin-client";
-import { createOrGetCustomer, createPixPayment } from "@/lib/billing/asaas";
-import { getTenantAsaasConfig } from "@/lib/orders/tenant-asaas";
+import { validateBrazilianTaxId } from "@/lib/brazilian-tax-id";
+import {
+  claimCheckoutOrder,
+  clearCheckoutOperationalError,
+  ensureCheckoutPix,
+  recordCheckoutOperationalError,
+  type CheckoutPixFailure,
+  type CheckoutPixResult,
+} from "@/lib/orders/checkout";
 import {
   engineSendInteractiveButtons,
   engineSendInteractiveList,
@@ -498,9 +505,9 @@ async function sendListAndSuspend(
 // (`__checkout_awaiting_cpf`) rather than a new run-state column —
 // same "scratch space" role `vars` already plays for collect_input.
 //
-// No payment call yet (v1.5 scope) — `createOrderFromCart` records
-// the order as `pending_payment` and creates the linked Deal; the
-// Asaas charge is wired in once per-tenant payment config ships.
+// Checkout claims a consistent order/deal snapshot transactionally.
+// The run advances only after the tenant's Asaas PIX is persisted and
+// its copy-and-paste payload has been delivered to the contact.
 // ============================================================
 
 const CATALOG_CHECKOUT_REPLY_ID = "__checkout__";
@@ -509,6 +516,19 @@ const MAX_CATALOG_ROWS = 9; // + the reserved checkout row = Meta's 10-row cap
 const MAX_UPSELL_ROWS = 9;
 const DEFAULT_CPF_PROMPT =
   "Pra emitir a cobrança, me informa seu CPF ou CNPJ:";
+const INVALID_CPF_CNPJ_PROMPT =
+  "CPF/CNPJ inválido. Confira e envie os 11 dígitos do CPF ou os 14 dígitos do CNPJ.";
+
+function assertCheckoutDbSuccess(
+  operation: string,
+  error: { message?: string } | null,
+): void {
+  if (error) {
+    throw new Error(
+      `${operation}: ${error.message ?? "erro de banco desconhecido"}`,
+    );
+  }
+}
 
 function formatCents(cents: number, currency: string): string {
   try {
@@ -525,11 +545,12 @@ function truncateForList(s: string, max: number): string {
 }
 
 async function loadAccountCurrency(db: AdminClient, accountId: string): Promise<string> {
-  const { data } = await db
+  const { data, error } = await db
     .from("accounts")
     .select("default_currency")
     .eq("id", accountId)
     .maybeSingle();
+  assertCheckoutDbSuccess("load account currency", error);
   return (data as { default_currency?: string } | null)?.default_currency ?? "BRL";
 }
 
@@ -544,13 +565,14 @@ async function loadActiveCatalogItems(
   accountId: string,
   limit: number,
 ): Promise<ActiveCatalogItem[]> {
-  const { data } = await db
+  const { data, error } = await db
     .from("catalog_items")
     .select("id, name, price_cents")
     .eq("account_id", accountId)
     .eq("is_active", true)
     .order("position", { ascending: true })
     .limit(limit);
+  assertCheckoutDbSuccess("load active catalog items", error);
   return (data as ActiveCatalogItem[] | null) ?? [];
 }
 
@@ -564,12 +586,14 @@ export async function getOrCreateOpenCart(
   db: AdminClient,
   args: { accountId: string; contactId: string; conversationId: string | null },
 ): Promise<string> {
-  const { data: existing } = await db
+  const { data: existing, error: existingError } = await db
     .from("carts")
     .select("id")
+    .eq("account_id", args.accountId)
     .eq("contact_id", args.contactId)
     .eq("status", "open")
     .maybeSingle();
+  assertCheckoutDbSuccess("load open cart", existingError);
   if (existing) return (existing as { id: string }).id;
 
   const { data: created, error } = await db
@@ -584,12 +608,14 @@ export async function getOrCreateOpenCart(
   if (created) return (created as { id: string }).id;
 
   if (error) {
-    const { data: retry } = await db
+    const { data: retry, error: retryError } = await db
       .from("carts")
       .select("id")
+      .eq("account_id", args.accountId)
       .eq("contact_id", args.contactId)
       .eq("status", "open")
       .maybeSingle();
+    assertCheckoutDbSuccess("reload open cart after create race", retryError);
     if (retry) return (retry as { id: string }).id;
   }
   throw error ?? new Error("failed to create cart");
@@ -611,36 +637,40 @@ export async function addCatalogItemToCart(
     catalogItemId: string;
   },
 ): Promise<{ name: string } | null> {
-  const { data: item } = await db
+  const { data: item, error: itemError } = await db
     .from("catalog_items")
     .select("id, name, price_cents")
     .eq("account_id", args.accountId)
     .eq("id", args.catalogItemId)
     .eq("is_active", true)
     .maybeSingle();
+  assertCheckoutDbSuccess("load catalog item for cart", itemError);
   if (!item) return null;
   const typedItem = item as { id: string; name: string; price_cents: number };
 
   const cartId = await getOrCreateOpenCart(db, args);
-  const { data: line } = await db
+  const { data: line, error: lineError } = await db
     .from("cart_items")
     .select("id, quantity")
     .eq("cart_id", cartId)
     .eq("catalog_item_id", typedItem.id)
     .maybeSingle();
+  assertCheckoutDbSuccess("load cart line", lineError);
   if (line) {
     const typedLine = line as { id: string; quantity: number };
-    await db
+    const { error } = await db
       .from("cart_items")
       .update({ quantity: typedLine.quantity + 1 })
       .eq("id", typedLine.id);
+    assertCheckoutDbSuccess("increment cart line", error);
   } else {
-    await db.from("cart_items").insert({
+    const { error } = await db.from("cart_items").insert({
       cart_id: cartId,
       catalog_item_id: typedItem.id,
       quantity: 1,
       unit_price_cents: typedItem.price_cents,
     });
+    assertCheckoutDbSuccess("insert cart line", error);
   }
   return { name: typedItem.name };
 }
@@ -669,32 +699,40 @@ interface CartSummary {
  */
 async function loadCartSummary(
   db: AdminClient,
+  accountId: string,
   contactId: string,
 ): Promise<CartSummary | null> {
-  const { data: cart } = await db
+  const { data: cart, error: cartError } = await db
     .from("carts")
     .select("id")
+    .eq("account_id", accountId)
     .eq("contact_id", contactId)
-    .eq("status", "open")
+    .in("status", ["checkout_pending", "open"])
+    .order("created_at", { ascending: true })
+    .limit(1)
     .maybeSingle();
+  assertCheckoutDbSuccess("load checkout cart", cartError);
   if (!cart) return null;
   const cartId = (cart as { id: string }).id;
 
-  const { data: items } = await db
+  const { data: items, error: itemsError } = await db
     .from("cart_items")
     .select("catalog_item_id, quantity, unit_price_cents")
     .eq("cart_id", cartId);
+  assertCheckoutDbSuccess("load checkout cart items", itemsError);
   const rows =
     (items as Array<{ catalog_item_id: string; quantity: number; unit_price_cents: number }> | null) ?? [];
   if (rows.length === 0) return { cartId, lines: [], subtotalCents: 0 };
 
-  const { data: catalogRows } = await db
+  const { data: catalogRows, error: catalogError } = await db
     .from("catalog_items")
     .select("id, name")
+    .eq("account_id", accountId)
     .in(
       "id",
       rows.map((r) => r.catalog_item_id),
     );
+  assertCheckoutDbSuccess("load checkout catalog snapshots", catalogError);
   const nameById = new Map(
     ((catalogRows as Array<{ id: string; name: string }> | null) ?? []).map((c) => [c.id, c.name]),
   );
@@ -710,87 +748,34 @@ async function loadCartSummary(
 }
 
 /**
- * Side-effecting order creation — mirrors the automations engine's
- * `create_deal` step (same explicit pipeline_id/stage_id requirement,
- * same account default_currency lookup). Snapshots the cart into
- * `order_items` so later catalog edits never rewrite history, then
- * closes the cart. No-ops (returns null) on an empty cart — callers
- * only reach this after `sendCheckoutAndSuspend` has already refused
- * to let an empty cart finalize.
+ * Claims the cart through one database transaction. The order, frozen
+ * line items, totals and linked Deal commit together; the cart remains
+ * checkout_pending until a correlated PIX has been persisted.
  */
 async function createOrderFromCart(
   db: AdminClient,
   run: FlowRunRow,
   cfg: CheckoutNodeConfig,
 ): Promise<{ orderId: string } | null> {
-  const summary = await loadCartSummary(db, run.contact_id!);
-  if (!summary || summary.lines.length === 0) return null;
-
-  const currency = await loadAccountCurrency(db, run.account_id);
-
-  const { data: order, error } = await db
-    .from("orders")
-    .insert({
-      account_id: run.account_id,
-      cart_id: summary.cartId,
-      contact_id: run.contact_id,
-      status: "pending_payment",
-      subtotal_cents: summary.subtotalCents,
-      total_cents: summary.subtotalCents,
-      currency,
-    })
-    .select("id")
-    .maybeSingle();
-  if (error || !order) return null;
-  const orderId = (order as { id: string }).id;
-
-  await db.from("order_items").insert(
-    summary.lines.map((l) => ({
-      order_id: orderId,
-      catalog_item_id: l.catalogItemId,
-      name_snapshot: l.name,
-      quantity: l.quantity,
-      unit_price_cents: l.unitPriceCents,
-      total_cents: l.subtotalCents,
-    })),
-  );
-
-  // Linked Deal (per the confirmed design — the tenant closes the
-  // sale by dragging this deal to a won stage; nothing here moves it
-  // automatically, including once payment is confirmed).
-  const { data: deal } = await db
-    .from("deals")
-    .insert({
-      account_id: run.account_id,
-      user_id: run.user_id,
-      pipeline_id: cfg.pipeline_id,
-      stage_id: cfg.stage_id,
-      contact_id: run.contact_id,
-      conversation_id: run.conversation_id,
-      title: "Pedido via WhatsApp",
-      value: summary.subtotalCents / 100,
-      currency,
-      status: "open",
-    })
-    .select("id")
-    .maybeSingle();
-  if (deal) {
-    await db.from("orders").update({ deal_id: (deal as { id: string }).id }).eq("id", orderId);
-  }
-
-  await db.from("carts").update({ status: "checked_out" }).eq("id", summary.cartId);
-  return { orderId };
+  const claimed = await claimCheckoutOrder(db, {
+    accountId: run.account_id,
+    contactId: run.contact_id!,
+    conversationId: run.conversation_id,
+    userId: run.user_id,
+    pipelineId: cfg.pipeline_id,
+    stageId: cfg.stage_id,
+  });
+  return claimed ? { orderId: claimed.orderId } : null;
 }
 
 /**
  * Charges the order via the TENANT's own Asaas account (PIX only —
  * matches the platform billing client's own rationale: PIX has no
  * recurring mandate in Brazil, so a one-off charge per order is the
- * correct shape here regardless). Degrades gracefully at every step —
- * a tenant who hasn't configured Asaas yet, or whose key has gone
- * bad, still gets a registered order; they just don't get an
- * automated charge, and the checkout node's own `next_node_key`
- * message is what tells the customer what happens next.
+ * correct shape here regardless). Failed attempts remain on the same
+ * pending order and do not advance the Flow. A retry reuses persisted
+ * PIX data or reconciles Asaas by the immutable order UUID before it
+ * can create another charge.
  *
  * QR code image is intentionally NOT sent — Asaas returns it as a
  * base64 PNG (`encodedImage`), and WhatsApp media sends need a
@@ -801,67 +786,189 @@ async function chargeOrderViaAsaas(
   db: AdminClient,
   run: FlowRunRow,
   orderId: string,
-): Promise<void> {
-  const config = await getTenantAsaasConfig(db, run.account_id);
-  if (!config) return;
-
-  const { data: order } = await db
-    .from("orders")
-    .select("total_cents, currency")
-    .eq("id", orderId)
-    .maybeSingle();
-  const { data: contact } = await db
-    .from("contacts")
-    .select("name, email, phone, cpf_cnpj")
-    .eq("id", run.contact_id!)
-    .maybeSingle();
-  const typedOrder = order as { total_cents: number; currency: string } | null;
-  const typedContact =
-    (contact as { name: string | null; email: string | null; phone: string; cpf_cnpj: string | null } | null);
-  if (!typedOrder || !typedContact?.cpf_cnpj) return;
+): Promise<CheckoutPixResult> {
+  const result = await ensureCheckoutPix(db, {
+    accountId: run.account_id,
+    orderId,
+    contactId: run.contact_id!,
+  });
+  if (!result.ok) return result;
 
   try {
-    const customer = await createOrGetCustomer({
-      config,
-      name: typedContact.name || "Cliente WhatsApp",
-      // Asaas requires an email to create a customer; WhatsApp contacts
-      // frequently don't have one captured. A per-contact placeholder
-      // keeps customer records distinct without blocking the charge.
-      email: typedContact.email || `contato-${run.contact_id}@sememail.imcrm.app`,
-      phone: typedContact.phone,
-      cpfCnpj: typedContact.cpf_cnpj,
-      externalReference: run.contact_id!,
-    });
-
-    const dueDate = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-    const { payment, qrCode } = await createPixPayment({
-      config,
-      customerId: customer.id,
-      value: typedOrder.total_cents / 100,
-      dueDate,
-      description: "Pedido via WhatsApp",
-      externalReference: orderId,
-    });
-
-    await db
-      .from("orders")
-      .update({ gateway_customer_id: customer.id, gateway_payment_id: payment.id })
-      .eq("id", orderId);
-
     await engineSendText({
       accountId: run.account_id,
       userId: run.user_id,
       conversationId: run.conversation_id!,
       contactId: run.contact_id!,
-      text: `Pra confirmar seu pedido, pague via PIX (copia e cola):\n\n${qrCode.payload}\n\nValor: ${formatCents(typedOrder.total_cents, typedOrder.currency)}`,
+      text: `Pra confirmar seu pedido, pague via PIX (copia e cola):\n\n${result.pixCopyPaste}\n\nValor: ${formatCents(result.totalCents, result.currency)}`,
     });
   } catch (err) {
-    // Bad/expired key, Asaas outage, etc. — don't strand the customer
-    // without any response; the order itself already exists.
-    await logEvent(db, run.id, "error", "checkout", {
-      reason: "asaas_charge_failed",
+    await recordCheckoutOperationalError(db, {
+      orderId,
+      accountId: run.account_id,
+      code: "pix_delivery_failed",
       detail: err instanceof Error ? err.message : String(err),
     });
+    return {
+      ok: false,
+      orderId,
+      code: "pix_delivery_failed",
+      retryMessage:
+        "Seu PIX foi gerado, mas não consegui enviar o código. Responda TENTAR NOVAMENTE.",
+    };
+  }
+
+  try {
+    await clearCheckoutOperationalError(db, orderId, run.account_id);
+  } catch (err) {
+    await recordCheckoutOperationalError(db, {
+      orderId,
+      accountId: run.account_id,
+      code: "checkout_error_clear_failed",
+      detail: err instanceof Error ? err.message : String(err),
+    });
+    return {
+      ok: false,
+      orderId,
+      code: "checkout_error_clear_failed",
+      retryMessage:
+        "Seu PIX foi enviado, mas não consegui concluir o atendimento. Responda TENTAR NOVAMENTE.",
+    };
+  }
+
+  return result;
+}
+
+async function persistCheckoutRunVars(
+  db: AdminClient,
+  run: FlowRunRow,
+  vars: Record<string, unknown>,
+): Promise<void> {
+  const { data, error } = await db
+    .from("flow_runs")
+    .update({ vars })
+    .eq("id", run.id)
+    .eq("status", "active")
+    .select("id")
+    .maybeSingle();
+  assertCheckoutDbSuccess("persist checkout flow vars", error);
+  if (!data) {
+    throw new Error("persist checkout flow vars: active run not found");
+  }
+  run.vars = vars;
+}
+
+async function sendCheckoutFailureAndSuspend(
+  db: AdminClient,
+  run: FlowRunRow,
+  failure: CheckoutPixFailure,
+): Promise<void> {
+  await logEvent(db, run.id, "error", "checkout", {
+    reason: failure.code,
+    order_id: failure.orderId,
+  });
+  try {
+    await engineSendText({
+      accountId: run.account_id,
+      userId: run.user_id,
+      conversationId: run.conversation_id!,
+      contactId: run.contact_id!,
+      text: failure.retryMessage,
+    });
+  } catch (err) {
+    await logEvent(db, run.id, "error", "checkout", {
+      reason: "checkout_retry_prompt_failed",
+      detail: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
+async function attemptCheckout(
+  db: AdminClient,
+  run: FlowRunRow,
+  cfg: CheckoutNodeConfig,
+): Promise<boolean> {
+  try {
+    // Persist the retry state before the transactional cart claim. If
+    // the process stops after the RPC commits but before we can store
+    // the order UUID, the next inbound reply can safely recover it.
+    const retryVars: Record<string, unknown> = {
+      ...run.vars,
+      __checkout_retry_pending: true,
+    };
+    delete retryVars.__checkout_awaiting_cpf;
+    await persistCheckoutRunVars(db, run, retryVars);
+
+    const pendingOrderId =
+      typeof run.vars.__checkout_pending_order_id === "string"
+        ? run.vars.__checkout_pending_order_id
+        : null;
+    const claimed = pendingOrderId
+      ? { orderId: pendingOrderId }
+      : await createOrderFromCart(db, run, cfg);
+
+    if (!claimed) {
+      const resetVars = { ...run.vars };
+      delete resetVars.__checkout_pending_order_id;
+      delete resetVars.__checkout_retry_pending;
+      await persistCheckoutRunVars(db, run, resetVars);
+      const failure: CheckoutPixFailure = {
+        ok: false,
+        orderId: "",
+        code: "empty_cart_at_checkout",
+        retryMessage:
+          "Não encontrei itens para finalizar. Adicione um produto ao carrinho e tente novamente.",
+      };
+      await sendCheckoutFailureAndSuspend(db, run, failure);
+      return false;
+    }
+
+    const pendingVars = { ...run.vars };
+    delete pendingVars.__checkout_awaiting_cpf;
+    pendingVars.__checkout_pending_order_id = claimed.orderId;
+    await persistCheckoutRunVars(db, run, pendingVars);
+
+    const payment = await chargeOrderViaAsaas(db, run, claimed.orderId);
+    if (!payment.ok) {
+      await sendCheckoutFailureAndSuspend(db, run, payment);
+      return false;
+    }
+
+    const completedVars = { ...run.vars };
+    delete completedVars.__checkout_awaiting_cpf;
+    delete completedVars.__checkout_pending_order_id;
+    delete completedVars.__checkout_retry_pending;
+    await persistCheckoutRunVars(db, run, completedVars);
+    return true;
+  } catch (err) {
+    const pendingOrderId =
+      typeof run.vars.__checkout_pending_order_id === "string"
+        ? run.vars.__checkout_pending_order_id
+        : "";
+    const failure: CheckoutPixFailure = {
+      ok: false,
+      orderId: pendingOrderId,
+      code: "checkout_persistence_failed",
+      retryMessage:
+        "Não consegui finalizar o pedido agora. Aguarde um pouco e responda TENTAR NOVAMENTE.",
+    };
+    await logEvent(db, run.id, "error", "checkout", {
+      reason: failure.code,
+      detail: err instanceof Error ? err.message : String(err),
+      order_id: pendingOrderId || null,
+    });
+    try {
+      await engineSendText({
+        accountId: run.account_id,
+        userId: run.user_id,
+        conversationId: run.conversation_id!,
+        contactId: run.contact_id!,
+        text: failure.retryMessage,
+      });
+    } catch {
+      // The persistence error is already logged; do not advance.
+    }
+    return false;
   }
 }
 
@@ -879,7 +986,7 @@ async function sendCatalogAndSuspend(
 ): Promise<void> {
   const cfg = node.config as unknown as ShowCatalogNodeConfig;
   const items = await loadActiveCatalogItems(db, run.account_id, MAX_CATALOG_ROWS);
-  const summary = await loadCartSummary(db, run.contact_id!);
+  const summary = await loadCartSummary(db, run.account_id, run.contact_id!);
   const cartCount = summary?.lines.length ?? 0;
   const cartLine =
     cartCount > 0
@@ -912,15 +1019,17 @@ async function sendCatalogAndSuspend(
     node_type: "show_catalog",
     whatsapp_message_id,
   });
-  const { data: msg } = await db
+  const { data: msg, error: messageError } = await db
     .from("messages")
     .select("id")
     .eq("message_id", whatsapp_message_id)
     .maybeSingle();
-  await db
+  assertCheckoutDbSuccess("load catalog prompt message", messageError);
+  const { error: promptError } = await db
     .from("flow_runs")
     .update({ last_prompt_message_id: (msg as { id: string } | null)?.id ?? null })
     .eq("id", run.id);
+  assertCheckoutDbSuccess("save catalog prompt message", promptError);
 }
 
 /**
@@ -934,7 +1043,7 @@ async function sendCheckoutAndSuspend(
   run: FlowRunRow,
   node: FlowNodeRow,
 ): Promise<{ ended: boolean }> {
-  const summary = await loadCartSummary(db, run.contact_id!);
+  const summary = await loadCartSummary(db, run.account_id, run.contact_id!);
   const currency = await loadAccountCurrency(db, run.account_id);
 
   if (!summary || summary.lines.length === 0) {
@@ -955,13 +1064,14 @@ async function sendCheckoutAndSuspend(
   }
 
   const cartItemIds = new Set(summary.lines.map((l) => l.catalogItemId));
-  const { data: upsellRaw } = await db
+  const { data: upsellRaw, error: upsellError } = await db
     .from("catalog_items")
     .select("id, name, price_cents")
     .eq("account_id", run.account_id)
     .eq("is_active", true)
     .eq("is_upsell", true)
     .limit(MAX_UPSELL_ROWS + cartItemIds.size);
+  assertCheckoutDbSuccess("load checkout upsells", upsellError);
   const upsellCandidates = (upsellRaw as ActiveCatalogItem[] | null) ?? [];
   const upsellRows = upsellCandidates
     .filter((c) => !cartItemIds.has(c.id))
@@ -995,15 +1105,17 @@ async function sendCheckoutAndSuspend(
     node_type: "checkout",
     whatsapp_message_id,
   });
-  const { data: msg } = await db
+  const { data: msg, error: messageError } = await db
     .from("messages")
     .select("id")
     .eq("message_id", whatsapp_message_id)
     .maybeSingle();
-  await db
+  assertCheckoutDbSuccess("load checkout prompt message", messageError);
+  const { error: promptError } = await db
     .from("flow_runs")
     .update({ last_prompt_message_id: (msg as { id: string } | null)?.id ?? null })
     .eq("id", run.id);
+  assertCheckoutDbSuccess("save checkout prompt message", promptError);
   return { ended: false };
 }
 
@@ -1583,6 +1695,24 @@ async function handleReplyForActiveRun(
       }
     }
   } else if (
+    currentNode.node_type === "checkout" &&
+    (typeof run.vars.__checkout_pending_order_id === "string" ||
+      run.vars.__checkout_retry_pending === true)
+  ) {
+    // Any reply while a checkout is pending acts as an explicit retry.
+    // ensureCheckoutPix reuses the persisted PIX or reconciles Asaas by
+    // externalReference before it can create another charge.
+    const cfg = currentNode.config as unknown as CheckoutNodeConfig;
+    if (await attemptCheckout(db, run, cfg)) {
+      matched = cfg.next_node_key;
+    } else {
+      return {
+        consumed: true,
+        flow_run_id: run.id,
+        outcome: "fallback_fired",
+      };
+    }
+  } else if (
     message.kind === "interactive_reply" &&
     currentNode.node_type === "show_catalog"
   ) {
@@ -1608,16 +1738,48 @@ async function handleReplyForActiveRun(
   ) {
     const cfg = currentNode.config as unknown as CheckoutNodeConfig;
     if (message.reply_id === CHECKOUT_FINALIZE_REPLY_ID) {
-      const { data: contact } = await db
+      const { data: contact, error: contactError } = await db
         .from("contacts")
         .select("cpf_cnpj")
         .eq("id", run.contact_id!)
+        .eq("account_id", run.account_id)
         .maybeSingle();
+      assertCheckoutDbSuccess("load checkout CPF/CNPJ", contactError);
+      if (!contact) {
+        throw new Error("load checkout CPF/CNPJ: contact not found");
+      }
       const cpfOnFile = (contact as { cpf_cnpj?: string | null } | null)?.cpf_cnpj;
-      if (cpfOnFile) {
-        const created = await createOrderFromCart(db, run, cfg);
-        if (created) await chargeOrderViaAsaas(db, run, created.orderId);
-        matched = cfg.next_node_key;
+      const validTaxId = cpfOnFile
+        ? validateBrazilianTaxId(cpfOnFile)
+        : null;
+      if (validTaxId) {
+        if (cpfOnFile !== validTaxId.normalized) {
+          const { data: normalizedContact, error: normalizeError } = await db
+            .from("contacts")
+            .update({ cpf_cnpj: validTaxId.normalized })
+            .eq("id", run.contact_id!)
+            .eq("account_id", run.account_id)
+            .select("id")
+            .maybeSingle();
+          assertCheckoutDbSuccess(
+            "normalize checkout CPF/CNPJ",
+            normalizeError,
+          );
+          if (!normalizedContact) {
+            throw new Error(
+              "normalize checkout CPF/CNPJ: contact not found",
+            );
+          }
+        }
+        if (await attemptCheckout(db, run, cfg)) {
+          matched = cfg.next_node_key;
+        } else {
+          return {
+            consumed: true,
+            flow_run_id: run.id,
+            outcome: "fallback_fired",
+          };
+        }
       } else {
         // Ask once, suspend WITHOUT re-sending the cart list — the
         // next TEXT reply is captured by the branch below.
@@ -1636,8 +1798,7 @@ async function handleReplyForActiveRun(
           });
         }
         const newVars = { ...run.vars, __checkout_awaiting_cpf: true };
-        await db.from("flow_runs").update({ vars: newVars }).eq("id", run.id);
-        run.vars = newVars;
+        await persistCheckoutRunVars(db, run, newVars);
         return { consumed: true, flow_run_id: run.id, outcome: "advanced" };
       }
     } else {
@@ -1655,19 +1816,53 @@ async function handleReplyForActiveRun(
     run.vars.__checkout_awaiting_cpf === true
   ) {
     const cfg = currentNode.config as unknown as CheckoutNodeConfig;
-    const cpf = message.text.trim();
-    if (cpf.length > 0) {
-      await db.from("contacts").update({ cpf_cnpj: cpf }).eq("id", run.contact_id!);
-      const newVars = { ...run.vars };
-      delete newVars.__checkout_awaiting_cpf;
-      await db.from("flow_runs").update({ vars: newVars }).eq("id", run.id);
-      run.vars = newVars;
-      const created = await createOrderFromCart(db, run, cfg);
-      if (created) await chargeOrderViaAsaas(db, run, created.orderId);
-      matched = cfg.next_node_key;
+    const taxId = validateBrazilianTaxId(message.text);
+    if (!taxId) {
+      await logEvent(db, run.id, "error", currentNode.node_key, {
+        reason: "invalid_cpf_cnpj",
+      });
+      try {
+        await engineSendText({
+          accountId: run.account_id,
+          userId: run.user_id,
+          conversationId: run.conversation_id!,
+          contactId: run.contact_id!,
+          text: INVALID_CPF_CNPJ_PROMPT,
+        });
+      } catch (err) {
+        await logEvent(db, run.id, "error", currentNode.node_key, {
+          reason: "invalid_cpf_cnpj_prompt_send_failed",
+          detail: err instanceof Error ? err.message : String(err),
+        });
+      }
+      return {
+        consumed: true,
+        flow_run_id: run.id,
+        outcome: "fallback_fired",
+      };
     }
-    // Empty text → falls through to the fallback/reprompt policy,
-    // which re-sends the same cpf_cnpj_prompt (see below).
+
+    const { data: updatedContact, error: taxIdError } = await db
+      .from("contacts")
+      .update({ cpf_cnpj: taxId.normalized })
+      .eq("id", run.contact_id!)
+      .eq("account_id", run.account_id)
+      .select("id")
+      .maybeSingle();
+    assertCheckoutDbSuccess("save checkout CPF/CNPJ", taxIdError);
+    if (!updatedContact) {
+      throw new Error("save checkout CPF/CNPJ: contact not found");
+    }
+
+    if (await attemptCheckout(db, run, cfg)) {
+      matched = cfg.next_node_key;
+    } else {
+      return {
+        consumed: true,
+        flow_run_id: run.id,
+        outcome: "fallback_fired",
+      };
+    }
   }
 
   if (matched) {

@@ -1,5 +1,9 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import {
+  requireRole,
+  toErrorResponse,
+  type AccountContext,
+} from '@/lib/auth/account'
 import { decrypt } from '@/lib/whatsapp/encryption'
 import { normalizeStatus } from '@/lib/whatsapp/template-status-normalize'
 import type { TemplateButton, TemplateSampleValues } from '@/types'
@@ -123,32 +127,15 @@ function extractSampleValues(
 }
 
 export async function POST() {
+  let ctx: AccountContext
   try {
-    const supabase = await createClient()
+    ctx = await requireRole('admin')
+  } catch (error) {
+    return toErrorResponse(error)
+  }
 
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser()
-
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Não autorizado' }, { status: 401 })
-    }
-
-    // Resolve the caller's account_id — both whatsapp_config and
-    // the message_templates we sync into are account-scoped.
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('account_id')
-      .eq('user_id', user.id)
-      .maybeSingle()
-    const accountId = profile?.account_id as string | undefined
-    if (!accountId) {
-      return NextResponse.json(
-        { error: 'Seu perfil não está vinculado a uma conta.' },
-        { status: 403 },
-      )
-    }
+  try {
+    const { supabase, accountId, userId } = ctx
 
     const { data: config, error: configError } = await supabase
       .from('whatsapp_config')
@@ -237,7 +224,7 @@ export async function POST() {
         // route. account_id is NOT NULL on message_templates
         // post-017, so an INSERT without it errors.
         account_id: accountId,
-        user_id: user.id,
+        user_id: userId,
         name: t.name,
         category: normalizeCategory(t.category),
         language: t.language,

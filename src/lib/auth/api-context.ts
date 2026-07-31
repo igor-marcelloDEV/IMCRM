@@ -33,7 +33,13 @@ import { supabaseAdmin } from '@/lib/flows/admin-client';
 import { findActiveKeyByHash, touchLastUsed } from '@/lib/api-keys/store';
 import { hashApiKey, looksLikeApiKey } from '@/lib/api-keys/keys';
 import { hasScope, type ApiScope } from '@/lib/api-keys/scopes';
-import { forbidden, rateLimited, unauthorized } from '@/lib/api/v1/respond';
+import {
+  forbidden,
+  paymentRequired,
+  rateLimited,
+  unauthorized,
+} from '@/lib/api/v1/respond';
+import { getAccountEntitlement } from '@/lib/billing/account-entitlement';
 import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit';
 
 export interface ApiKeyContext {
@@ -105,11 +111,20 @@ export async function requireApiKey(
     throw forbidden(`This API key is missing the '${scope}' scope`);
   }
 
+  const supabase = supabaseAdmin();
+  const entitlement = await getAccountEntitlement(
+    supabase,
+    row.account_id,
+  );
+  if (!entitlement.hasAccess) {
+    throw paymentRequired();
+  }
+
   touchLastUsed(row.id);
 
   return {
     authType: 'api_key',
-    supabase: supabaseAdmin(),
+    supabase,
     accountId: row.account_id,
     keyId: row.id,
     scopes: row.scopes,

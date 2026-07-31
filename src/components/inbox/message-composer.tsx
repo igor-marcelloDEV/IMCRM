@@ -46,6 +46,7 @@ import {
   deleteAccountMedia,
   MEDIA_MAX_BYTES_BY_KIND,
 } from "@/lib/storage/upload-media";
+import { CHAT_MEDIA_BUCKET } from "@/lib/storage/chat-media";
 import { ReplyQuote } from "./reply-quote";
 import { useTranslations } from "next-intl";
 import {
@@ -59,9 +60,6 @@ import { QuickReplyPicker } from "./quick-reply-picker";
 /** Media content types an agent can send from the composer. */
 export type ComposerMediaKind = "image" | "video" | "document" | "audio";
 
-/** Supabase Storage bucket holding agent-sent chat attachments (migration 023). */
-export const CHAT_MEDIA_BUCKET = "chat-media";
-
 /** Meta caps media captions at 1024 chars. Enforced here and in the send route. */
 export const MEDIA_CAPTION_MAX = 1024;
 
@@ -71,8 +69,8 @@ const MAX_RECORDING_SECONDS = 5 * 60;
 
 export interface SendMediaPayload {
   kind: ComposerMediaKind;
-  /** Public chat-media URL Meta fetches at send time. */
-  mediaUrl: string;
+  /** Short-lived signed URL used only for the optimistic local preview. */
+  previewUrl: string;
   /** Storage object path — lets the caller GC the object if the send fails. */
   path: string;
   /** Optional caption (image/video/document only). */
@@ -102,7 +100,7 @@ const PICKER_ACCEPT: Record<"image" | "video" | "document", string> = {
 
 interface MediaDraft {
   kind: ComposerMediaKind;
-  mediaUrl: string;
+  previewUrl: string;
   /** Storage path — used to GC the object if the draft is discarded. */
   path: string;
   filename: string;
@@ -401,10 +399,10 @@ export function MessageComposer({
       }
       setBusy(true);
       try {
-        const { publicUrl, path } = await uploadAccountMedia(CHAT_MEDIA_BUCKET, file);
+        const { url, path } = await uploadAccountMedia(CHAT_MEDIA_BUCKET, file);
         // Replacing an existing draft? GC the previous object first.
         removeStaged(draftRef.current?.path);
-        setDraft({ kind, mediaUrl: publicUrl, path, filename: file.name, caption: "" });
+        setDraft({ kind, previewUrl: url, path, filename: file.name, caption: "" });
       } catch (err) {
         toast.error(err instanceof Error ? err.message : t("toastUploadFailed"));
       } finally {
@@ -439,9 +437,9 @@ export function MessageComposer({
       }
       setBusy(true);
       try {
-        const { publicUrl, path } = await uploadAccountMedia(CHAT_MEDIA_BUCKET, file);
+        const { url, path } = await uploadAccountMedia(CHAT_MEDIA_BUCKET, file);
         removeStaged(draftRef.current?.path);
-        setDraft({ kind: "audio", mediaUrl: publicUrl, path, filename: file.name, caption: "" });
+        setDraft({ kind: "audio", previewUrl: url, path, filename: file.name, caption: "" });
       } catch (err) {
         toast.error(err instanceof Error ? err.message : t("toastUploadFailed"));
       } finally {
@@ -512,7 +510,7 @@ export function MessageComposer({
     if (!draft || busy) return;
     onSendMedia({
       kind: draft.kind,
-      mediaUrl: draft.mediaUrl,
+      previewUrl: draft.previewUrl,
       path: draft.path,
       // Audio takes no caption (Meta rejects it). Everything else: the
       // trimmed caption, or undefined when blank.
@@ -849,16 +847,16 @@ function MediaDraftPreview({
           {draft.kind === "image" && (
             // eslint-disable-next-line @next/next/no-img-element
             <img
-              src={draft.mediaUrl}
+              src={draft.previewUrl}
               alt={draft.filename}
               className="max-h-40 rounded-lg object-cover"
             />
           )}
           {draft.kind === "video" && (
-            <video src={draft.mediaUrl} controls className="max-h-40 rounded-lg" />
+            <video src={draft.previewUrl} controls className="max-h-40 rounded-lg" />
           )}
           {draft.kind === "audio" && (
-            <audio src={draft.mediaUrl} controls className="w-full" />
+            <audio src={draft.previewUrl} controls className="w-full" />
           )}
           {draft.kind === "document" && (
             <div className="flex items-center gap-2 text-sm text-foreground">

@@ -35,12 +35,13 @@ function SignupPageInner() {
   // invite token in the query so it survives the signup → email
   // verification → redirect round-trip. `emailRedirectTo` below
   // points back at /join/<token> so the user lands on the redeem
-  // step after verifying instead of being dropped on /dashboard.
+  // step after verifying instead of being dropped on /today.
   const inviteToken = searchParams.get("invite");
 
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
+  const [marketingConsent, setMarketingConsent] = useState(false);
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -78,11 +79,8 @@ function SignupPageInner() {
       options: {
         data: {
           full_name: fullName,
-          // WhatsApp number — required so the billing retention nudges
-          // (see src/app/api/billing/nurture-cron/route.ts) have
-          // somewhere to reach an account that signed up but hasn't
-          // subscribed yet. handle_new_user() copies it onto profiles.phone.
           phone,
+          marketing_opt_in: marketingConsent,
         },
         ...(emailRedirectTo ? { emailRedirectTo } : {}),
       },
@@ -100,10 +98,10 @@ function SignupPageInner() {
     // active and there's no verification email to wait for, so the
     // "check your email" screen would be a dead end. Continue the
     // flow immediately instead: straight to the invite's accept step
-    // if we came from one, otherwise the dashboard.
+    // if we came from one, otherwise the daily workspace.
     if (data.session) {
       router.push(
-        inviteToken ? `/join/${encodeURIComponent(inviteToken)}` : "/dashboard",
+        inviteToken ? `/join/${encodeURIComponent(inviteToken)}` : "/today",
       );
       return;
     }
@@ -216,9 +214,24 @@ function SignupPageInner() {
                 placeholder={t("phonePlaceholder")}
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
-                required
                 className="border-border bg-muted text-foreground placeholder:text-muted-foreground focus-visible:border-primary focus-visible:ring-primary/20"
               />
+            </div>
+
+            <div className="flex items-start gap-2 rounded-lg border border-border bg-muted/40 p-3">
+              <input
+                id="marketingConsent"
+                type="checkbox"
+                checked={marketingConsent}
+                onChange={(event) => setMarketingConsent(event.target.checked)}
+                className="mt-0.5 h-4 w-4 rounded border-border accent-primary"
+              />
+              <Label
+                htmlFor="marketingConsent"
+                className="cursor-pointer text-xs font-normal leading-relaxed text-muted-foreground"
+              >
+                {t("marketingConsent")}
+              </Label>
             </div>
 
             <div className="flex flex-col gap-2">

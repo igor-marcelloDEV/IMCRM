@@ -336,8 +336,8 @@ function MediaField({
       }
       setUploading(true);
       try {
-        const { publicUrl } = await uploadAccountMedia(CATALOG_MEDIA_BUCKET, file);
-        onChange({ media_url: publicUrl, media_type: detectedKind });
+        const { url } = await uploadAccountMedia(CATALOG_MEDIA_BUCKET, file);
+        onChange({ media_url: url, media_type: detectedKind });
         toast.success(t("fileUploaded"));
       } catch (err) {
         const msg = err instanceof Error ? err.message : t("toastUploadFailed");

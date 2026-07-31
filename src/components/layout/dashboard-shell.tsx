@@ -1,10 +1,10 @@
-"use client";
+'use client';
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { AuthProvider, useAuth } from "@/hooks/use-auth";
-import { useBillingStatus, hasBillingAccess } from "@/hooks/use-billing-status";
+import { useBillingStatus } from "@/hooks/use-billing-status";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Header } from "@/components/layout/header";
 import { PresenceHeartbeat } from "@/components/presence/presence-heartbeat";
@@ -13,12 +13,18 @@ import { PresenceHeartbeat } from "@/components/presence/presence-heartbeat";
 // itself can stay a server component and export metadata (noindex) —
 // client components can't export Next's metadata object.
 
-function DashboardShellInner({ children }: { children: React.ReactNode }) {
+function DashboardShellInner({
+  children,
+  billingBypass,
+}: {
+  children: React.ReactNode;
+  billingBypass: boolean;
+}) {
   const t = useTranslations("Settings.overview");
   const { user, loading, accountId } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
-  const billingStatus = useBillingStatus(accountId);
+  const billing = useBillingStatus(accountId);
 
   // Sidebar drawer state — only used on mobile. On lg+ the sidebar is
   // always visible and this stays at `false` (ignored by the component).
@@ -32,16 +38,16 @@ function DashboardShellInner({ children }: { children: React.ReactNode }) {
   }, [user, loading, router]);
 
   // Client-side mirror of the middleware billing gate (see
-  // src/middleware.ts) — belt-and-suspenders so an in-app navigation
+  // src/proxy.ts) — belt-and-suspenders so an in-app navigation
   // (no full page load, middleware doesn't re-run) still redirects an
   // account whose subscription just lapsed. /billing itself is exempt
   // — that's the one page an unpaid account must always be able to reach.
   useEffect(() => {
-    if (billingStatus === "loading") return;
-    if (!hasBillingAccess(billingStatus) && pathname !== "/billing") {
+    if (billingBypass || billing.status === "loading") return;
+    if (!billing.hasAccess && pathname !== "/billing") {
       router.push("/billing");
     }
-  }, [billingStatus, pathname, router]);
+  }, [billing, billingBypass, pathname, router]);
 
   if (loading) {
     return (
@@ -56,7 +62,8 @@ function DashboardShellInner({ children }: { children: React.ReactNode }) {
 
   if (!user) return null;
 
-  const billingRestricted = billingStatus !== "loading" && !hasBillingAccess(billingStatus);
+  const billingRestricted =
+    !billingBypass && billing.status !== "loading" && !billing.hasAccess;
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
@@ -73,10 +80,18 @@ function DashboardShellInner({ children }: { children: React.ReactNode }) {
   );
 }
 
-export function DashboardShell({ children }: { children: React.ReactNode }) {
+export function DashboardShell({
+  children,
+  billingBypass = false,
+}: {
+  children: React.ReactNode;
+  billingBypass?: boolean;
+}) {
   return (
     <AuthProvider>
-      <DashboardShellInner>{children}</DashboardShellInner>
+      <DashboardShellInner billingBypass={billingBypass}>
+        {children}
+      </DashboardShellInner>
     </AuthProvider>
   );
 }

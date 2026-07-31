@@ -69,6 +69,11 @@ export interface SendMessageParams {
   messageType: string;
   contentText?: string | null;
   mediaUrl?: string | null;
+  /**
+   * Durable authenticated URL stored in message history. When omitted
+   * (for example, public API callers), `mediaUrl` remains the persisted URL.
+   */
+  persistedMediaUrl?: string | null;
   filename?: string | null;
   templateName?: string | null;
   templateLanguage?: string | null;
@@ -185,6 +190,7 @@ export async function sendMessageToConversation(
     messageType,
     contentText,
     mediaUrl,
+    persistedMediaUrl,
     filename,
     templateName,
     templateLanguage,
@@ -405,7 +411,8 @@ export async function sendMessageToConversation(
       sender_type: 'agent',
       content_type: messageType,
       content_text: interactiveBody ?? contentText ?? null,
-      media_url: mediaUrl || null,
+      media_url:
+        isMediaKind && persistedMediaUrl ? persistedMediaUrl : mediaUrl || null,
       template_name: templateName || null,
       interactive_payload:
         messageType === 'interactive' ? interactivePayload : null,

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import type { SupabaseClient } from '@supabase/supabase-js'
+import { requireRole, toErrorResponse } from '@/lib/auth/account'
 import {
   checkRateLimit,
   rateLimitResponse,
@@ -9,7 +10,14 @@ import {
   sendMessageToConversation,
   validateSendMessageParams,
   SendMessageError,
+  MEDIA_KINDS,
 } from '@/lib/whatsapp/send-message'
+import {
+  buildChatMediaInternalUrl,
+  CHAT_MEDIA_BUCKET,
+  CHAT_MEDIA_PROVIDER_TTL_SECONDS,
+  isChatMediaPathForAccount,
+} from '@/lib/storage/chat-media'
 
 // The dashboard's outbound-send endpoint. It owns auth, per-user rate
 // limiting, and the two ways the UI targets a thread — an existing
@@ -21,43 +29,24 @@ import {
 // conversation, delegate, then map `SendMessageError` back onto the
 // dashboard's internal `{ error }` shape.
 export async function POST(request: Request) {
+  let supabase: SupabaseClient
+  let accountId: string
+  let userId: string
   try {
-    const supabase = await createClient()
+    const ctx = await requireRole('agent')
+    supabase = ctx.supabase
+    accountId = ctx.accountId
+    userId = ctx.userId
+  } catch (error) {
+    return toErrorResponse(error)
+  }
 
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser()
-
-    if (authError || !user) {
-      return NextResponse.json(
-        { error: 'Não autorizado' },
-        { status: 401 }
-      )
-    }
-
+  try {
     // Per-user rate limit. Bucket key is scoped to this route so
     // `/broadcast` has an independent budget.
-    const limit = checkRateLimit(`send:${user.id}`, RATE_LIMITS.send)
+    const limit = checkRateLimit(`send:${userId}`, RATE_LIMITS.send)
     if (!limit.success) {
       return rateLimitResponse(limit)
-    }
-
-    // Resolve the caller's account_id. Every downstream lookup
-    // (conversation, whatsapp_config, message_templates) is account-
-    // scoped post-multi-user, so the previous `user_id` filters
-    // returned nothing for teammates who didn't author the row.
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('account_id')
-      .eq('user_id', user.id)
-      .maybeSingle()
-    const accountId = profile?.account_id as string | undefined
-    if (!accountId) {
-      return NextResponse.json(
-        { error: 'Seu perfil não está vinculado a uma conta.' },
-        { status: 403 },
-      )
     }
 
     const body = await request.json()
@@ -69,7 +58,7 @@ export async function POST(request: Request) {
       contact_id,
       message_type,
       content_text,
-      media_url,
+      media_path,
       filename,
       template_name,
       template_language,
@@ -89,6 +78,41 @@ export async function POST(request: Request) {
       )
     }
 
+    // The browser sends only the stable Storage path for chat attachments.
+    // Never trust or persist a client-provided URL: verify tenant ownership,
+    // mint a short-lived provider URL, then save our authenticated endpoint.
+    const isMediaMessage = (MEDIA_KINDS as readonly string[]).includes(
+      message_type,
+    )
+    let providerMediaUrl: string | null = null
+    let persistedMediaUrl: string | null = null
+    if (isMediaMessage) {
+      if (typeof media_path !== 'string' || !media_path) {
+        return NextResponse.json(
+          { error: 'media_path é obrigatório para anexos' },
+          { status: 400 },
+        )
+      }
+      if (!isChatMediaPathForAccount(media_path, accountId)) {
+        return NextResponse.json(
+          { error: 'Mídia não pertence a esta conta' },
+          { status: 403 },
+        )
+      }
+
+      const { data: signed, error: signError } = await supabase.storage
+        .from(CHAT_MEDIA_BUCKET)
+        .createSignedUrl(media_path, CHAT_MEDIA_PROVIDER_TTL_SECONDS)
+      if (signError || !signed?.signedUrl) {
+        return NextResponse.json(
+          { error: 'Mídia não encontrada' },
+          { status: 404 },
+        )
+      }
+      providerMediaUrl = signed.signedUrl
+      persistedMediaUrl = buildChatMediaInternalUrl(media_path)
+    }
+
     // Validate the message shape up front — before the contact_id path
     // finds-or-creates a conversation — so an invalid payload 400s
     // without leaving an orphan empty conversation behind.
@@ -96,7 +120,7 @@ export async function POST(request: Request) {
       validateSendMessageParams({
         messageType: message_type,
         contentText: content_text,
-        mediaUrl: media_url,
+        mediaUrl: providerMediaUrl,
         templateName: template_name,
         interactivePayload: interactive_payload,
       })
@@ -148,7 +172,7 @@ export async function POST(request: Request) {
       const resolved = await findOrCreateConversation(
         supabase,
         accountId,
-        user.id,
+        userId,
         contact_id
       )
       if (!resolved) {
@@ -176,7 +200,8 @@ export async function POST(request: Request) {
         conversationId,
         messageType: message_type,
         contentText: content_text,
-        mediaUrl: media_url,
+        mediaUrl: providerMediaUrl,
+        persistedMediaUrl,
         filename,
         templateName: template_name,
         templateLanguage: template_language,
@@ -209,8 +234,6 @@ export async function POST(request: Request) {
   }
 }
 
-type SendSupabase = Awaited<ReturnType<typeof createClient>>
-
 /**
  * Return the contact's conversation id in this account, creating one if
  * it doesn't exist yet. Mirrors the webhook's find-or-create so an
@@ -219,7 +242,7 @@ type SendSupabase = Awaited<ReturnType<typeof createClient>>
  * policy requires account agent membership, which the caller already is.
  */
 async function findOrCreateConversation(
-  supabase: SendSupabase,
+  supabase: SupabaseClient,
   accountId: string,
   userId: string,
   contactId: string,

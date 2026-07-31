@@ -22,7 +22,7 @@ export async function GET(
     const { data, error } = await ctx.supabase
       .from('broadcasts')
       .select(
-        'id, name, template_name, template_language, status, total_recipients, sent_count, delivered_count, read_count, replied_count, failed_count, created_at, updated_at'
+        'id, name, template_name, template_language, status, total_recipients, sent_count, delivered_count, read_count, replied_count, failed_count, skipped_count, rejected_recipients, created_at, updated_at'
       )
       .eq('id', id)
       .eq('account_id', ctx.accountId)

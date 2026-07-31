@@ -74,6 +74,10 @@ describe("localDayKey", () => {
   it("accepts ISO strings as input", () => {
     expect(localDayKey("2026-12-31T23:00:00")).toBe("2026-12-31");
   });
+
+  it("keeps date-only values on the intended local calendar day", () => {
+    expect(localDayKey("2026-05-18")).toBe("2026-05-18");
+  });
 });
 
 describe("lastNDayKeys", () => {
@@ -106,18 +110,18 @@ describe("lastNDayKeys", () => {
 
 describe("mondayIndex", () => {
   it("maps Monday → 0 and Sunday → 6", () => {
-    expect(mondayIndex(new Date("2026-05-18"))).toBe(0); // Mon
-    expect(mondayIndex(new Date("2026-05-19"))).toBe(1); // Tue
-    expect(mondayIndex(new Date("2026-05-23"))).toBe(5); // Sat
-    expect(mondayIndex(new Date("2026-05-24"))).toBe(6); // Sun
+    expect(mondayIndex(new Date(2026, 4, 18))).toBe(0); // Monday, local time
+    expect(mondayIndex(new Date(2026, 4, 19))).toBe(1); // Tuesday
+    expect(mondayIndex(new Date(2026, 4, 23))).toBe(5); // Saturday
+    expect(mondayIndex(new Date(2026, 4, 24))).toBe(6); // Sunday
   });
 
   it("aligns with DOW_SHORT_MON_FIRST labels", () => {
-    expect(DOW_SHORT_MON_FIRST[mondayIndex(new Date("2026-05-18"))]).toBe(
-      "Mon",
+    expect(DOW_SHORT_MON_FIRST[mondayIndex(new Date(2026, 4, 18))]).toBe(
+      "Seg",
     );
-    expect(DOW_SHORT_MON_FIRST[mondayIndex(new Date("2026-05-24"))]).toBe(
-      "Sun",
+    expect(DOW_SHORT_MON_FIRST[mondayIndex(new Date(2026, 4, 24))]).toBe(
+      "Dom",
     );
   });
 });

@@ -1,254 +1,194 @@
-import { NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
-import { getProviderForAccount } from '@/lib/whatsapp/provider-factory'
-import { ProviderError } from '@/lib/whatsapp/provider'
-import type { SendTimeParams } from '@/lib/whatsapp/template-send-builder'
-import { isMessageTemplate } from '@/lib/whatsapp/template-row-guard'
+import { NextResponse } from 'next/server';
+
 import {
-  sanitizePhoneForMeta,
-  isValidE164,
-  phoneVariants,
-  isRecipientNotAllowedError,
-} from '@/lib/whatsapp/phone-utils'
+  requireRole,
+  toErrorResponse,
+  type AccountContext,
+} from '@/lib/auth/account';
+import { supabaseAdmin } from '@/lib/automations/admin-client';
+import {
+  BroadcastError,
+  createBroadcast,
+  type BroadcastRecipientInput,
+} from '@/lib/whatsapp/broadcast-core';
+import type { SendTimeParams } from '@/lib/whatsapp/template-send-builder';
 import {
   checkRateLimit,
   rateLimitResponse,
   RATE_LIMITS,
-} from '@/lib/rate-limit'
-
-interface BroadcastResult {
-  phone: string
-  status: 'sent' | 'failed'
-  whatsapp_message_id?: string
-  error?: string
-}
+} from '@/lib/rate-limit';
 
 /**
- * Two input shapes are accepted:
+ * Preferred input:
+ * {
+ *   name,
+ *   recipients: [{
+ *     contact_id?, phone, params?, messageParams?
+ *   }],
+ *   template_name,
+ *   template_language,
+ *   template_variables?,
+ *   audience_filter?,
+ *   idempotency_key?
+ * }
  *
- *   NEW (preferred — supports per-recipient variable substitution):
- *     {
- *       recipients: Array<{ phone: string; params: string[] }>,
- *       template_name, template_language
- *     }
- *
- *   LEGACY (all phones receive the same params — kept so existing
- *   callers don't break):
- *     {
- *       phone_numbers: string[],
- *       template_params: string[],
- *       template_name, template_language
- *     }
- *
- * Previous implementation only supported the legacy shape, and the
- * sending hook was forced to ship every batch with `templateParams[0]`
- * — meaning every recipient got contact-0's personalization. The new
- * shape is what actually fixes that.
+ * The legacy `phone_numbers` + shared `template_params` shape remains
+ * accepted. Both shapes now enqueue durable recipient jobs; this route
+ * never performs the provider fan-out inside the HTTP request.
  */
-interface NewRecipient {
-  phone: string
-  /** Body variable values, one per {{N}}. Legacy field. */
-  params?: string[]
-  /**
-   * Structured per-send values (header text variable, media URL
-   * override, URL/COPY_CODE button values). When set, takes
-   * precedence over `params` for the body too — see
-   * sendTemplateMessage for the merge rules.
-   */
-  messageParams?: SendTimeParams
+interface RequestRecipient {
+  contact_id?: unknown;
+  phone?: unknown;
+  params?: unknown;
+  messageParams?: unknown;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function normalizeRecipients(
+  body: Record<string, unknown>
+): BroadcastRecipientInput[] | null {
+  const preferred = body.recipients;
+  if (Array.isArray(preferred) && preferred.length > 0) {
+    return preferred.map((raw) => {
+      const recipient = asRecord(raw) as RequestRecipient | null;
+      return {
+        to: typeof recipient?.phone === 'string' ? recipient.phone : '',
+        contactId:
+          typeof recipient?.contact_id === 'string'
+            ? recipient.contact_id
+            : undefined,
+        params: Array.isArray(recipient?.params)
+          ? recipient.params.filter(
+              (value): value is string => typeof value === 'string'
+            )
+          : undefined,
+        messageParams: asRecord(recipient?.messageParams) as
+          SendTimeParams | undefined,
+      };
+    });
+  }
+
+  if (Array.isArray(body.phone_numbers) && body.phone_numbers.length > 0) {
+    const shared = Array.isArray(body.template_params)
+      ? body.template_params.filter(
+          (value): value is string => typeof value === 'string'
+        )
+      : [];
+    return body.phone_numbers.map((phone) => ({
+      to: typeof phone === 'string' ? phone : '',
+      params: shared,
+    }));
+  }
+
+  return null;
 }
 
 export async function POST(request: Request) {
+  let ctx: AccountContext;
   try {
-    const supabase = await createClient()
+    ctx = await requireRole('agent');
+  } catch (error) {
+    return toErrorResponse(error);
+  }
 
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser()
+  try {
+    const limit = checkRateLimit(
+      `broadcast:${ctx.userId}`,
+      RATE_LIMITS.broadcast
+    );
+    if (!limit.success) return rateLimitResponse(limit);
 
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Não autorizado' }, { status: 401 })
-    }
-
-    // Per-user broadcast budget. Note: this limits how often a user
-    // can *start* a campaign, not how many messages go out inside
-    // one — the fan-out loop below runs without additional gating.
-    const limit = checkRateLimit(`broadcast:${user.id}`, RATE_LIMITS.broadcast)
-    if (!limit.success) {
-      return rateLimitResponse(limit)
-    }
-
-    // Resolve the caller's account_id. whatsapp_config + templates
-    // + broadcasts are all account-scoped post-multi-user, so the
-    // old `.eq('user_id', user.id)` filters miss every row created
-    // by a teammate.
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('account_id')
-      .eq('user_id', user.id)
-      .maybeSingle()
-    const accountId = profile?.account_id as string | undefined
-    if (!accountId) {
+    const body = asRecord(await request.json().catch(() => null));
+    if (!body) {
       return NextResponse.json(
-        { error: 'Seu perfil não está vinculado a uma conta.' },
-        { status: 403 },
-      )
-    }
-
-    const body = await request.json()
-    const {
-      recipients: newRecipients,
-      phone_numbers,
-      template_name,
-      template_language,
-      template_params,
-    } = body
-
-    // Normalize to a list of {phone, params} regardless of shape.
-    let recipients: NewRecipient[]
-    if (Array.isArray(newRecipients) && newRecipients.length > 0) {
-      recipients = newRecipients
-    } else if (Array.isArray(phone_numbers) && phone_numbers.length > 0) {
-      const shared: string[] = Array.isArray(template_params)
-        ? template_params
-        : []
-      recipients = phone_numbers.map((phone: string) => ({
-        phone,
-        params: shared,
-      }))
-    } else {
-      return NextResponse.json(
-        {
-          error:
-            'Forneça `recipients` (preferido) ou `phone_numbers` — deve ser uma lista não vazia',
-        },
+        { error: 'O corpo da requisição deve ser um objeto JSON' },
         { status: 400 }
-      )
+      );
     }
 
-    if (!template_name) {
+    const templateName =
+      typeof body.template_name === 'string' ? body.template_name.trim() : '';
+    if (!templateName) {
       return NextResponse.json(
         { error: "O campo 'template_name' é obrigatório" },
         { status: 400 }
-      )
+      );
     }
 
-    let provider
-    try {
-      provider = await getProviderForAccount(supabase, accountId)
-    } catch (err) {
-      const message =
-        err instanceof ProviderError
-          ? err.message
-          : 'O WhatsApp® não está configurado. Configure sua integração com o WhatsApp primeiro.'
-      return NextResponse.json({ error: message }, { status: 400 })
-    }
-
-    // Load the template row once so sendTemplate can build
-    // header + button components on each iteration. Loading inside
-    // the loop would N+1 against Supabase for every recipient.
-    // Guard against a malformed local row crashing every send in
-    // the loop with the same opaque TypeError — fail loudly once.
-    const { data: rawTemplateRow } = await supabase
-      .from('message_templates')
-      .select('*')
-      .eq('account_id', accountId)
-      .eq('name', template_name)
-      .eq('language', template_language || 'en_US')
-      .maybeSingle()
-    if (rawTemplateRow && !isMessageTemplate(rawTemplateRow)) {
+    const recipients = normalizeRecipients(body);
+    if (!recipients) {
       return NextResponse.json(
         {
           error:
-            'O modelo está corrompido localmente — use "Sincronizar da Meta" em Configurações → Modelos para corrigi-lo antes de disparar.',
+            'Forneça `recipients` (preferido) ou `phone_numbers` como uma lista não vazia',
         },
-        { status: 500 },
-      )
-    }
-    const templateRow = rawTemplateRow ?? null
-
-    const results: BroadcastResult[] = []
-    let sentCount = 0
-    let failedCount = 0
-
-    for (const recipient of recipients) {
-      const sanitized = sanitizePhoneForMeta(recipient.phone)
-
-      if (!isValidE164(sanitized)) {
-        results.push({
-          phone: recipient.phone,
-          status: 'failed',
-          error: 'Formato de número de telefone inválido',
-        })
-        failedCount++
-        continue
-      }
-
-      // Retry with phone variants on "not in allowed list" so numbers
-      // that differ only in a trunk-prefix 0 still reach recipients.
-      const variants = phoneVariants(sanitized)
-      let sentMessageId: string | null = null
-      let lastError: string | null = null
-
-      for (const variant of variants) {
-        try {
-          const result = await provider.sendTemplate({
-            to: variant,
-            templateName: template_name,
-            language: template_language || 'en_US',
-            template: templateRow ?? undefined,
-            messageParams: recipient.messageParams,
-            params: recipient.params ?? [],
-          })
-          sentMessageId = result.providerMessageKey
-          lastError = null
-          break
-        } catch (error) {
-          const errorMessage =
-            error instanceof Error ? error.message : 'Erro desconhecido'
-          if (!isRecipientNotAllowedError(errorMessage)) {
-            lastError = errorMessage
-            break
-          }
-          lastError = errorMessage
-          // retry with next variant
-        }
-      }
-
-      if (sentMessageId) {
-        results.push({
-          phone: recipient.phone,
-          status: 'sent',
-          whatsapp_message_id: sentMessageId,
-        })
-        sentCount++
-      } else {
-        console.error(
-          `Failed to send broadcast to ${recipient.phone}:`,
-          lastError
-        )
-        results.push({
-          phone: recipient.phone,
-          status: 'failed',
-          error: lastError || 'Erro desconhecido',
-        })
-        failedCount++
-      }
+        { status: 400 }
+      );
     }
 
-    return NextResponse.json({
-      success: true,
-      total: recipients.length,
-      sent: sentCount,
-      failed: failedCount,
-      results,
-    })
-  } catch (error) {
-    console.error('Error in WhatsApp broadcast POST:', error)
+    const headerIdempotencyKey = request.headers.get('idempotency-key');
+    const bodyIdempotencyKey =
+      typeof body.idempotency_key === 'string' ? body.idempotency_key : null;
+    const templateVariables = asRecord(body.template_variables);
+    const audienceFilter = asRecord(body.audience_filter);
+
+    // Authorization is already established above. Queue tables and RPCs
+    // are service-role-only, so the account id is passed explicitly and
+    // the core verifies every supplied contact belongs to that account.
+    const queued = await createBroadcast(
+      supabaseAdmin(),
+      ctx.accountId,
+      ctx.userId,
+      {
+        name: typeof body.name === 'string' ? body.name : null,
+        templateName,
+        templateLanguage:
+          typeof body.template_language === 'string'
+            ? body.template_language
+            : null,
+        recipients,
+        templateVariables,
+        audienceFilter,
+        idempotencyKey: headerIdempotencyKey || bodyIdempotencyKey,
+      }
+    );
+
     return NextResponse.json(
-      { error: 'Falha ao processar o disparo' },
+      {
+        success: true,
+        broadcast_id: queued.broadcastId,
+        status: queued.status,
+        total: queued.totalRecipients,
+        queued: queued.accepted,
+        accepted: queued.accepted,
+        rejected: queued.rejected,
+        skipped: queued.skipped,
+        replayed: queued.replayed,
+        ...(queued.accepted === 0
+          ? {
+              message:
+                'Nenhuma mensagem foi enfileirada; todos os destinatários válidos foram suprimidos por preferência de marketing.',
+            }
+          : {}),
+      },
+      { status: 202 }
+    );
+  } catch (error) {
+    if (error instanceof BroadcastError) {
+      return NextResponse.json(
+        { error: error.message, code: error.code },
+        { status: error.status }
+      );
+    }
+    console.error('[whatsapp/broadcast] enqueue failed:', error);
+    return NextResponse.json(
+      { error: 'Falha ao enfileirar o disparo' },
       { status: 500 }
-    )
+    );
   }
 }

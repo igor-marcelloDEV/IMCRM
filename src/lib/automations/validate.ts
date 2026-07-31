@@ -210,9 +210,14 @@ export function validateTriggerForActivation(
       })
     }
   } else if (triggerType === 'time_based') {
-    if (!nonEmpty(cfg.schedule)) {
-      issues.push({ path: 'trigger.schedule', message: 'schedule is required', messageKey: 'trigger.scheduleRequired' })
-    }
+    // The UI used to expose this trigger even though no dispatcher
+    // existed. Reject legacy rows at activation time instead of letting
+    // entrepreneurs trust an automation that will never execute.
+    issues.push({
+      path: 'trigger.type',
+      message: 'scheduled triggers are not available yet',
+      messageKey: 'trigger.unsupported',
+    })
   } else if (triggerType === 'tag_added') {
     if (!nonEmpty(cfg.tag_id)) {
       issues.push({ path: 'trigger.tag_id', message: 'tag is required', messageKey: 'trigger.tagRequired' })

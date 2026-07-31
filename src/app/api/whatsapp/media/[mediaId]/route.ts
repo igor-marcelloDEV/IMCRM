@@ -77,7 +77,9 @@ export async function GET(
       status: 200,
       headers: {
         'Content-Type': contentType || mediaInfo.mimeType || 'application/octet-stream',
-        'Cache-Control': 'public, max-age=86400',
+        'Cache-Control': 'private, no-store, max-age=0',
+        'Pragma': 'no-cache',
+        'X-Content-Type-Options': 'nosniff',
       },
     })
   } catch (error) {

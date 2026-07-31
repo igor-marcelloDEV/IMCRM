@@ -1,7 +1,8 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
+import { getAccountEntitlement } from '@/lib/billing/account-entitlement'
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request })
 
   const supabase = createServerClient(
@@ -13,7 +14,7 @@ export async function middleware(request: NextRequest) {
           return request.cookies.getAll()
         },
         setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value, options }) => request.cookies.set(name, value))
+          cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value))
           supabaseResponse = NextResponse.next({ request })
           cookiesToSet.forEach(({ name, value, options }) =>
             supabaseResponse.cookies.set(name, value, options)
@@ -47,7 +48,7 @@ export async function middleware(request: NextRequest) {
   // send the already-signed-in user to /join/<token> instead so
   // they can accept the invitation in one click. Without this,
   // a forwarded invite link to someone who's already signed in
-  // would silently drop them on /dashboard.
+  // would silently drop them on /today.
   if (user && (
     request.nextUrl.pathname === '/login' ||
     request.nextUrl.pathname === '/signup' ||
@@ -63,14 +64,30 @@ export async function middleware(request: NextRequest) {
       url.pathname = `/join/${encodeURIComponent(inviteToken)}`
       url.search = ''
     } else {
-      url.pathname = '/dashboard'
+      url.pathname = '/today'
       url.search = ''
     }
     return withRefreshedCookies(NextResponse.redirect(url))
   }
 
   // Protected pages - redirect to login if not authenticated
-  const protectedPaths = ['/dashboard', '/inbox', '/contacts', '/pipelines', '/broadcasts', '/automations', '/settings', '/billing']
+  const protectedPaths = [
+    '/dashboard',
+    '/today',
+    '/tasks',
+    '/inbox',
+    '/contacts',
+    '/pipelines',
+    '/broadcasts',
+    '/automations',
+    '/settings',
+    '/billing',
+    '/orders',
+    '/flows',
+    '/notifications',
+    '/agents',
+    '/admin',
+  ]
   if (!user && protectedPaths.some(path => request.nextUrl.pathname.startsWith(path))) {
     const url = request.nextUrl.clone()
     url.pathname = '/login'
@@ -80,11 +97,8 @@ export async function middleware(request: NextRequest) {
   // Billing gate — a signed-in user whose account has no valid
   // subscription (or whose payment lapsed) is confined to /billing.
   // Runs after the auth checks above so it only ever applies to a
-  // resolved session. One extra indexed query per protected-page
-  // request, same cost class as the auth.getUser() call already made
-  // above — see the plan doc for why this lives in middleware rather
-  // than only client-side (a disabled-JS or direct-navigation visitor
-  // must not slip past the gate).
+  // resolved session. This remains an optimistic UX redirect: the
+  // dashboard server layout and API authorization are authoritative.
   const billingExemptPaths = ['/billing', '/api/billing/']
   const isProtectedPath = protectedPaths.some(path => request.nextUrl.pathname.startsWith(path))
   const isBillingExempt = billingExemptPaths.some(path => request.nextUrl.pathname.startsWith(path))
@@ -96,14 +110,12 @@ export async function middleware(request: NextRequest) {
       .maybeSingle()
 
     if (profileRow?.account_id) {
-      const { data: subscriptionRow } = await supabase
-        .from('subscriptions')
-        .select('status')
-        .eq('account_id', profileRow.account_id)
-        .in('status', ['trialing', 'active'])
-        .maybeSingle()
+      const entitlement = await getAccountEntitlement(
+        supabase,
+        profileRow.account_id,
+      )
 
-      if (!subscriptionRow) {
+      if (!entitlement.hasAccess) {
         const url = request.nextUrl.clone()
         url.pathname = '/billing'
         url.search = ''

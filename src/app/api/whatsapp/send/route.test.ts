@@ -10,10 +10,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 // Records of what the route wrote, so we can assert the right rows landed.
 const conversationInserts: Array<Record<string, unknown>> = []
 const messageInserts: Array<Record<string, unknown>> = []
+const createSignedUrl = vi.fn(async () => ({
+  data: { signedUrl: 'https://storage.example/signed/chat-media/photo' },
+  error: null,
+}))
 
 // Toggles for the per-test scenario.
 let existingConversation: Record<string, unknown> | null = null
 let contactRow: Record<string, unknown> | null = null
+let accountRole: 'agent' | 'viewer' = 'agent'
 // A conversation created during the request becomes retrievable by id —
 // the shared send core re-loads the conversation (with its contact) from
 // just the id, so the mock must model insert-then-select-by-id.
@@ -35,11 +40,30 @@ function makeSupabaseMock() {
     const selectResult = () => {
       switch (table) {
         case 'profiles':
-          return { data: { account_id: 'acct-1' }, error: null }
+          return {
+            data: { account_id: 'acct-1', account_role: accountRole },
+            error: null,
+          }
         case 'accounts':
           // getProviderForAccount reads this to pick Meta vs. Baileys —
           // every test here exercises the (default) Meta path.
-          return { data: { active_whatsapp_provider: 'meta_cloud_api' }, error: null }
+          return {
+            data: {
+              id: 'acct-1',
+              name: 'Acme',
+              active_whatsapp_provider: 'meta_cloud_api',
+            },
+            error: null,
+          }
+        case 'subscriptions':
+          return {
+            data: {
+              status: 'active',
+              trial_ends_at: null,
+              current_period_end: '2099-01-01T00:00:00.000Z',
+            },
+            error: null,
+          }
         case 'contacts':
           return { data: contactRow, error: null }
         case 'conversations':
@@ -119,6 +143,9 @@ function makeSupabaseMock() {
       })),
     },
     from: vi.fn((table: string) => builder(table)),
+    storage: {
+      from: vi.fn(() => ({ createSignedUrl })),
+    },
   }
 }
 
@@ -147,13 +174,14 @@ vi.mock('@/lib/whatsapp/encryption', () => ({
   isLegacyFormat: vi.fn(() => false),
 }))
 
-const { sendTemplateMessage } = vi.hoisted(() => ({
+const { sendTemplateMessage, sendMediaMessage } = vi.hoisted(() => ({
   sendTemplateMessage: vi.fn(async () => ({ messageId: 'wamid-1' })),
+  sendMediaMessage: vi.fn(async () => ({ messageId: 'wamid-media-1' })),
 }))
 vi.mock('@/lib/whatsapp/meta-api', () => ({
   sendTemplateMessage,
   sendTextMessage: vi.fn(),
-  sendMediaMessage: vi.fn(),
+  sendMediaMessage,
 }))
 
 import { POST } from './route'
@@ -176,6 +204,21 @@ function postContactTemplate(overrides: Record<string, unknown> = {}) {
   )
 }
 
+function postMedia(path: string) {
+  return POST(
+    new Request('http://localhost/api/whatsapp/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        conversation_id: 'conv-existing',
+        message_type: 'image',
+        media_path: path,
+        content_text: 'Photo',
+      }),
+    }),
+  )
+}
+
 describe('POST /api/whatsapp/send — contact_id template path', () => {
   beforeEach(() => {
     conversationInserts.length = 0
@@ -183,8 +226,11 @@ describe('POST /api/whatsapp/send — contact_id template path', () => {
     existingConversation = null
     createdConversation = null
     contactRow = CONTACT
+    accountRole = 'agent'
     supabaseMock = makeSupabaseMock()
     sendTemplateMessage.mockClear()
+    sendMediaMessage.mockClear()
+    createSignedUrl.mockClear()
   })
 
   afterEach(() => {
@@ -252,6 +298,17 @@ describe('POST /api/whatsapp/send — contact_id template path', () => {
     expect(sendTemplateMessage).not.toHaveBeenCalled()
   })
 
+  it('forbids a viewer before any provider call or conversation write', async () => {
+    accountRole = 'viewer'
+
+    const res = await postContactTemplate()
+
+    expect(res.status).toBe(403)
+    expect(sendTemplateMessage).not.toHaveBeenCalled()
+    expect(conversationInserts).toHaveLength(0)
+    expect(messageInserts).toHaveLength(0)
+  })
+
   it('400s when neither conversation_id nor contact_id is provided', async () => {
     const res = await POST(
       new Request('http://localhost/api/whatsapp/send', {
@@ -261,5 +318,43 @@ describe('POST /api/whatsapp/send — contact_id template path', () => {
       }),
     )
     expect(res.status).toBe(400)
+  })
+
+  it('signs account-owned chat media for Meta but persists only the stable internal URL', async () => {
+    existingConversation = {
+      id: 'conv-existing',
+      account_id: 'acct-1',
+      contact_id: 'contact-1',
+      contact: CONTACT,
+    }
+    const path = 'account-acct-1/1700000000000-photo.png'
+
+    const res = await postMedia(path)
+
+    expect(res.status).toBe(200)
+    expect(createSignedUrl).toHaveBeenCalledWith(path, 600)
+    expect(sendMediaMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        link: 'https://storage.example/signed/chat-media/photo',
+      }),
+    )
+    expect(messageInserts[0]).toMatchObject({
+      content_type: 'image',
+      media_url:
+        '/api/whatsapp/media/chat?path=account-acct-1%2F1700000000000-photo.png',
+    })
+    expect(String(messageInserts[0].media_url)).not.toContain('/signed/')
+  })
+
+  it.each([
+    'account-other/1700000000000-secret.png',
+    'account-acct-1/../account-other/secret.png',
+  ])('rejects cross-account or traversal media path %s before signing', async (path) => {
+    const res = await postMedia(path)
+
+    expect(res.status).toBe(403)
+    expect(createSignedUrl).not.toHaveBeenCalled()
+    expect(sendMediaMessage).not.toHaveBeenCalled()
+    expect(messageInserts).toHaveLength(0)
   })
 })

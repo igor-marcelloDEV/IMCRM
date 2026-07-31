@@ -11,11 +11,13 @@ import {
   Bell,
   BookOpen,
   Bot,
+  CalendarCheck2,
   CreditCard,
   Crown,
   GitBranch,
   LayoutDashboard,
   LayoutGrid,
+  ListTodo,
   LogOut,
   MessageSquare,
   Package,
@@ -95,6 +97,8 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   { href: "/dashboard", labelKey: "dashboard", icon: LayoutDashboard },
+  { href: "/today", labelKey: "today", icon: CalendarCheck2 },
+  { href: "/tasks", labelKey: "tasks", icon: ListTodo },
   { href: "/inbox", labelKey: "inbox", icon: MessageSquare },
   { href: "/notifications", labelKey: "notifications", icon: Bell },
   { href: "/contacts", labelKey: "contacts", icon: Users },
@@ -216,7 +220,10 @@ export function Sidebar({ open = false, onClose, billingRestricted = false }: Si
         {/* Logo row. On mobile we put a close button here; on desktop the
             close button is hidden since the sidebar is always-visible. */}
         <div className="flex h-14 shrink-0 items-center justify-between gap-2 border-b border-border px-4">
-          <Link href="/dashboard" className="flex items-center gap-2">
+          <Link
+            href={billingRestricted ? "/billing" : "/today"}
+            className="flex items-center gap-2"
+          >
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
               <MessageSquare className="h-4 w-4" />
             </div>

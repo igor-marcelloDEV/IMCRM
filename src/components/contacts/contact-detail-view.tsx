@@ -6,7 +6,7 @@ import { addContactTag, deleteContactTag } from '@/lib/contacts/tag-api';
 import { useAuth } from '@/hooks/use-auth';
 import { formatCurrency } from '@/lib/currency';
 import { toast } from 'sonner';
-import type { Contact, Tag, ContactTag, ContactNote, CustomField, ContactCustomValue, Deal, MessageTemplate } from '@/types';
+import type { Contact, Tag, ContactNote, CustomField, Deal, MessageTemplate } from '@/types';
 import {
   TemplatePicker,
   type TemplateSendValues,
@@ -24,8 +24,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { Badge } from '@/components/ui/badge';
-import { ScrollArea } from '@/components/ui/scroll-area';
+import { TaskWorkspace } from '@/components/tasks/task-workspace';
 import {
   Phone,
   Mail,
@@ -36,7 +35,6 @@ import {
   Plus,
   Trash2,
   Save,
-  X,
   DollarSign,
   LayoutTemplate,
 } from 'lucide-react';
@@ -451,7 +449,7 @@ export function ContactDetailView({
 
             {/* Tabs */}
             <Tabs defaultValue="details" className="flex-1 flex flex-col min-h-0">
-              <TabsList className="bg-muted/50 border-b border-border mx-4 mt-3">
+              <TabsList className="mx-4 mt-3 max-w-[calc(100%-2rem)] justify-start overflow-x-auto border-b border-border bg-muted/50">
                 <TabsTrigger
                   value="details"
                   className="data-active:bg-muted data-active:text-primary text-muted-foreground"
@@ -481,6 +479,12 @@ export function ContactDetailView({
                   className="data-active:bg-muted data-active:text-primary text-muted-foreground"
                 >
                   {t('tabs.deals')}
+                </TabsTrigger>
+                <TabsTrigger
+                  value="tasks"
+                  className="data-active:bg-muted data-active:text-primary text-muted-foreground"
+                >
+                  {t('tabs.tasks')}
                 </TabsTrigger>
               </TabsList>
 
@@ -743,6 +747,19 @@ export function ContactDetailView({
                     ))}
                   </div>
                 )}
+              </TabsContent>
+
+              {/* Tasks Tab — reuses the same operational component as
+                  /today and /tasks, scoped to this contact. */}
+              <TabsContent value="tasks" className="flex-1 overflow-y-auto px-4 py-3">
+                <TaskWorkspace
+                  view="contact"
+                  compact
+                  fixedContact={{
+                    id: contact.id,
+                    label: contact.name || contact.phone || t('unnamed'),
+                  }}
+                />
               </TabsContent>
             </Tabs>
           </div>

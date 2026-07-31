@@ -17,7 +17,8 @@
 // ============================================================
 
 import { NextResponse } from "next/server";
-import { getCurrentAccount, toErrorResponse, ForbiddenError } from "@/lib/auth/account";
+import { toErrorResponse } from "@/lib/auth/account";
+import { requirePlatformAdmin } from "@/lib/auth/platform-admin";
 import { supabaseAdmin } from "@/lib/billing/admin-client";
 
 // Subscription statuses that count as "actively usable" — mirrors
@@ -26,11 +27,8 @@ const ACTIVE_STATUSES = new Set(["active", "trialing"]);
 
 export async function GET() {
   try {
-    const ctx = await getCurrentAccount();
+    await requirePlatformAdmin();
     const operatorAccountId = process.env.PLATFORM_OPERATOR_ACCOUNT_ID;
-    if (!operatorAccountId || ctx.accountId !== operatorAccountId) {
-      throw new ForbiddenError("Este painel é restrito ao operador da plataforma");
-    }
 
     const db = supabaseAdmin();
 

@@ -1,6 +1,10 @@
 import { NextResponse } from 'next/server'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { createClient } from '@/lib/supabase/server'
+import {
+  requireRole,
+  toErrorResponse,
+  type AccountContext,
+} from '@/lib/auth/account'
 import { decrypt } from '@/lib/whatsapp/encryption'
 import { submitMessageTemplate } from '@/lib/whatsapp/meta-api'
 import {
@@ -10,6 +14,53 @@ import {
 import { buildMetaTemplatePayload } from '@/lib/whatsapp/template-components'
 import { ensureImageHeaderHandle } from '@/lib/whatsapp/template-header-handle'
 import { normalizeStatus } from '@/lib/whatsapp/template-status-normalize'
+import {
+  buildChatMediaInternalUrl,
+  CHAT_MEDIA_BUCKET,
+  CHAT_MEDIA_PROVIDER_TTL_SECONDS,
+  extractChatMediaPath,
+  isChatMediaPathForAccount,
+} from '@/lib/storage/chat-media'
+
+async function ensureResolvableImageHeader(
+  payload: TemplatePayload,
+  accessToken: string,
+  supabase: SupabaseClient,
+  accountId: string,
+) {
+  if (payload.header_type !== 'image' || payload.header_handle) {
+    await ensureImageHeaderHandle(payload, accessToken)
+    return
+  }
+
+  const chatMediaPath = payload.header_media_url
+    ? extractChatMediaPath(payload.header_media_url)
+    : null
+  if (!chatMediaPath) {
+    await ensureImageHeaderHandle(payload, accessToken)
+    return
+  }
+  if (!isChatMediaPathForAccount(chatMediaPath, accountId)) {
+    throw new Error('A mídia do cabeçalho não pertence a esta conta.')
+  }
+
+  const { data, error } = await supabase.storage
+    .from(CHAT_MEDIA_BUCKET)
+    .createSignedUrl(chatMediaPath, CHAT_MEDIA_PROVIDER_TTL_SECONDS)
+  if (error || !data?.signedUrl) {
+    throw new Error('Não foi possível acessar a mídia antiga do cabeçalho.')
+  }
+
+  // Fetch the signed URL to obtain Meta's resumable-upload handle, while
+  // keeping only the stable authenticated URL in our local template row.
+  const resolvablePayload = {
+    ...payload,
+    header_media_url: data.signedUrl,
+  }
+  await ensureImageHeaderHandle(resolvablePayload, accessToken)
+  payload.header_handle = resolvablePayload.header_handle
+  payload.header_media_url = buildChatMediaInternalUrl(chatMediaPath)
+}
 
 /**
  * Shared upsert payload builder — both the Meta-failure path and the
@@ -87,30 +138,15 @@ async function upsertTemplateRow(
  * submitted; editing or deleting requires hsm_id and lives in PR 4.
  */
 export async function POST(request: Request) {
+  let ctx: AccountContext
   try {
-    const supabase = await createClient()
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser()
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Não autorizado' }, { status: 401 })
-    }
+    ctx = await requireRole('admin')
+  } catch (error) {
+    return toErrorResponse(error)
+  }
 
-    // Resolve the caller's account_id — whatsapp_config + the
-    // message_templates row are account-scoped post-multi-user.
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('account_id')
-      .eq('user_id', user.id)
-      .maybeSingle()
-    const accountId = profile?.account_id as string | undefined
-    if (!accountId) {
-      return NextResponse.json(
-        { error: 'Seu perfil não está vinculado a uma conta.' },
-        { status: 403 },
-      )
-    }
+  try {
+    const { supabase, accountId, userId } = ctx
 
     let payload: TemplatePayload
     try {
@@ -180,7 +216,12 @@ export async function POST(request: Request) {
       // building the payload. Surfaces a 400 with an actionable message
       // (missing META_APP_ID, unreachable URL, wrong type/size).
       try {
-        await ensureImageHeaderHandle(payload, accessToken)
+        await ensureResolvableImageHeader(
+          payload,
+          accessToken,
+          supabase,
+          accountId,
+        )
       } catch (e) {
         return NextResponse.json(
           { error: e instanceof Error ? e.message : 'Falha no upload da imagem do cabeçalho.' },
@@ -203,7 +244,7 @@ export async function POST(request: Request) {
         // until they fix and re-submit.
         await upsertTemplateRow(
           supabase,
-          buildUpsertRow(accountId, user.id, payload, {
+          buildUpsertRow(accountId, userId, payload, {
             status: 'DRAFT',
             metaTemplateId: null,
             submissionError: message,
@@ -223,7 +264,7 @@ export async function POST(request: Request) {
 
     const { data: row, error: upsertErr } = await upsertTemplateRow(
       supabase,
-      buildUpsertRow(accountId, user.id, payload, {
+      buildUpsertRow(accountId, userId, payload, {
         status: normalizeStatus(metaStatus),
         metaTemplateId,
         submissionError: null,

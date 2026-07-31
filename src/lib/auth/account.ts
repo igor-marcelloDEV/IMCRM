@@ -29,6 +29,8 @@ import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { createClient } from "@/lib/supabase/server";
+import { getAccountEntitlement } from "@/lib/billing/account-entitlement";
+import type { EntitlementDecision } from "@/lib/billing/entitlement";
 import { hasMinRole, isAccountRole, type AccountRole } from "./roles";
 
 // ------------------------------------------------------------
@@ -54,6 +56,14 @@ export class ForbiddenError extends Error {
   }
 }
 
+export class PaymentRequiredError extends Error {
+  readonly status = 402 as const;
+  constructor(message = "Assinatura inativa ou expirada") {
+    super(message);
+    this.name = "PaymentRequiredError";
+  }
+}
+
 /**
  * Convert one of the typed errors above (or anything else) into a
  * `NextResponse`. Routes can do:
@@ -67,7 +77,11 @@ export class ForbiddenError extends Error {
  * server internals out of the wire.
  */
 export function toErrorResponse(err: unknown): NextResponse {
-  if (err instanceof UnauthorizedError || err instanceof ForbiddenError) {
+  if (
+    err instanceof UnauthorizedError ||
+    err instanceof ForbiddenError ||
+    err instanceof PaymentRequiredError
+  ) {
     return NextResponse.json({ error: err.message }, { status: err.status });
   }
   console.error("[toErrorResponse] uncategorized error:", err);
@@ -89,6 +103,10 @@ export interface AccountContext {
   role: AccountRole;
   /** Lightweight account meta — id + name. */
   account: { id: string; name: string };
+}
+
+export interface EntitledAccountContext extends AccountContext {
+  entitlement: EntitlementDecision;
 }
 
 /**
@@ -173,18 +191,56 @@ export async function getCurrentAccount(): Promise<AccountContext> {
 }
 
 /**
+ * Secure account-level entitlement check for pages and server data
+ * access. Unlike Proxy, this runs next to the protected server code and
+ * therefore remains authoritative even if routing changes.
+ */
+export async function requireEntitledAccount(): Promise<EntitledAccountContext> {
+  const ctx = await getCurrentAccount();
+  const entitlement = await getAccountEntitlement(
+    ctx.supabase,
+    ctx.accountId,
+  );
+  if (!entitlement.hasAccess) {
+    throw new PaymentRequiredError();
+  }
+  return { ...ctx, entitlement };
+}
+
+export interface RequireRoleOptions {
+  /**
+   * Defaults to true. Billing checkout, operator administration, and
+   * other explicit recovery paths should call `getCurrentAccount()`
+   * instead of silently disabling this guard.
+   */
+  requireEntitlement?: boolean;
+}
+
+/**
  * Resolve the caller's account context and enforce a minimum role.
  *
  * Throws `UnauthorizedError` / `ForbiddenError` as documented on
  * `getCurrentAccount`, plus `ForbiddenError("Insufficient role")`
  * when the caller is below `min`.
  */
-export async function requireRole(min: AccountRole): Promise<AccountContext> {
+export async function requireRole(
+  min: AccountRole,
+  options: RequireRoleOptions = {},
+): Promise<AccountContext> {
   const ctx = await getCurrentAccount();
   if (!hasMinRole(ctx.role, min)) {
     throw new ForbiddenError(
       `Esta ação requer a função '${min}' ou superior`,
     );
+  }
+  if (options.requireEntitlement !== false) {
+    const entitlement = await getAccountEntitlement(
+      ctx.supabase,
+      ctx.accountId,
+    );
+    if (!entitlement.hasAccess) {
+      throw new PaymentRequiredError();
+    }
   }
   return ctx;
 }

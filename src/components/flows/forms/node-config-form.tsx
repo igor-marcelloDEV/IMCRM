@@ -944,11 +944,11 @@ function SendMediaForm({
       try {
         // Account-scoped upload (path `account-<id>/...`) — see
         // uploadAccountMedia + migration 020's flow-media RLS policy.
-        const { publicUrl } = await uploadAccountMedia(FLOW_MEDIA_BUCKET, file);
+        const { url } = await uploadAccountMedia(FLOW_MEDIA_BUCKET, file);
         // Patch all fields in one call so the form doesn't re-render
         // with a half-uploaded state.
         onUpdateConfig({
-          media_url: publicUrl,
+          media_url: url,
           filename: file.name,
         });
         toast.success(t("fileUploaded"));

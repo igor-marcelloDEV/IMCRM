@@ -17,7 +17,19 @@ export function daysAgoStart(days: number): Date {
 
 /** Date-only key (YYYY-MM-DD) for bucketing rows by local calendar day. */
 export function localDayKey(d: Date | string): string {
-  const date = typeof d === 'string' ? new Date(d) : d
+  // JavaScript parses bare YYYY-MM-DD strings as UTC. In negative
+  // offsets such as America/Sao_Paulo that turns midnight into the
+  // previous local day, which is wrong for due dates and reports.
+  const date =
+    typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d)
+      ? new Date(
+          Number(d.slice(0, 4)),
+          Number(d.slice(5, 7)) - 1,
+          Number(d.slice(8, 10)),
+        )
+      : typeof d === 'string'
+        ? new Date(d)
+        : d
   const y = date.getFullYear()
   const m = String(date.getMonth() + 1).padStart(2, '0')
   const day = String(date.getDate()).padStart(2, '0')
@@ -49,4 +61,4 @@ export function mondayIndex(d: Date): number {
   return (jsDow + 6) % 7
 }
 
-export const DOW_SHORT_MON_FIRST = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] as const
+export const DOW_SHORT_MON_FIRST = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'] as const

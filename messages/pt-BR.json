@@ -61,7 +61,9 @@
     }
   },
   "Sidebar": {
-    "dashboard": "Painel",
+    "dashboard": "Analytics",
+    "today": "Hoje",
+    "tasks": "Tarefas",
     "inbox": "Caixa de entrada",
     "notifications": "Notificações",
     "contacts": "Contatos",
@@ -91,7 +93,9 @@
     "menuSignOut": "Sair"
   },
   "Header": {
-    "dashboard": "Painel",
+    "dashboard": "Analytics",
+    "today": "Hoje",
+    "tasks": "Tarefas",
     "inbox": "Caixa de entrada",
     "notifications": "Notificações",
     "contacts": "Contatos",
@@ -151,7 +155,7 @@
   },
   "Dashboard": {
     "page": {
-      "title": "Painel",
+      "title": "Analytics",
       "description": "Análises em tempo real de conversas, contatos, negócios, disparos e automações.",
       "activeConversations": "Conversas ativas",
       "newContactsToday": "Novos contatos hoje",
@@ -421,6 +425,134 @@
       "networkError": "Não foi possível conectar ao servidor."
     }
   },
+  "Tasks": {
+    "page": {
+      "title": "Tarefas",
+      "description": "Organize retornos, pendências e próximos passos da equipe."
+    },
+    "today": {
+      "title": "Hoje",
+      "description": "Veja o que exige atenção agora e avance sem perder o contexto."
+    },
+    "filters": {
+      "assigneeLabel": "Filtrar por responsável",
+      "mine": "Minhas",
+      "all": "Todas"
+    },
+    "quickAdd": {
+      "title": "Adicionar tarefa rapidamente",
+      "inputLabel": "Título da nova tarefa",
+      "placeholder": "Ex.: Retornar para a cliente sobre a proposta",
+      "today": "Hoje",
+      "tomorrow": "Amanhã",
+      "noDate": "Sem data",
+      "moreOptions": "Mais opções",
+      "adding": "Adicionando...",
+      "add": "Adicionar"
+    },
+    "counters": {
+      "open": "Em aberto",
+      "overdue": "Atrasadas",
+      "today": "Para hoje",
+      "completed": "Concluídas"
+    },
+    "sections": {
+      "overdue": "Atrasadas",
+      "overdueDescription": "Pendências de dias anteriores",
+      "today": "Hoje",
+      "todayDescription": "Prioridades do dia",
+      "upcoming": "Próximas",
+      "upcomingDescription": "Com data futura",
+      "unscheduled": "Sem data",
+      "unscheduledDescription": "Pendências para planejar",
+      "completed": "Concluídas",
+      "completedDescription": "Podem ser reabertas se necessário",
+      "empty": "Nenhuma tarefa nesta seção."
+    },
+    "priority": {
+      "low": "Baixa",
+      "normal": "Normal",
+      "high": "Alta",
+      "urgent": "Urgente"
+    },
+    "row": {
+      "noDate": "Sem data",
+      "unassigned": "Sem responsável",
+      "unknownPerson": "Pessoa sem nome",
+      "unknownContact": "Contato sem nome",
+      "linkedContact": "Contato vinculado",
+      "linkedDeal": "Negócio vinculado"
+    },
+    "editor": {
+      "createTitle": "Nova tarefa",
+      "editTitle": "Editar tarefa",
+      "createDescription": "Adicione contexto, responsável e vínculos quando precisar.",
+      "editDescription": "Atualize o próximo passo sem perder o histórico.",
+      "titleLabel": "Título",
+      "titlePlaceholder": "O que precisa ser feito?",
+      "descriptionLabel": "Descrição",
+      "descriptionPlaceholder": "Contexto ou resultado esperado (opcional)",
+      "priorityLabel": "Prioridade",
+      "dueLabel": "Data e horário",
+      "assigneeLabel": "Responsável",
+      "unassigned": "Sem responsável",
+      "contactLabel": "Contato",
+      "noContact": "Sem contato",
+      "dealLabel": "Negócio",
+      "noDeal": "Sem negócio",
+      "resourcesWarning": "Não foi possível carregar todas as opções. Você ainda pode salvar os campos disponíveis."
+    },
+    "actions": {
+      "refresh": "Atualizar",
+      "retry": "Tentar novamente",
+      "save": "Salvar tarefa",
+      "saving": "Salvando...",
+      "close": "Fechar",
+      "loadMore": "Carregar mais",
+      "loadingMore": "Carregando...",
+      "completeTask": "Concluir {title}",
+      "reopenTask": "Reabrir {title}",
+      "editTask": "Editar {title}",
+      "cancelTask": "Cancelar {title}",
+      "cancel": "Cancelar tarefa",
+      "canceling": "Cancelando..."
+    },
+    "states": {
+      "loading": "Carregando tarefas...",
+      "loadError": "Não foi possível carregar as tarefas.",
+      "loadErrorTitle": "Falha ao carregar tarefas",
+      "saveError": "Não foi possível salvar a tarefa.",
+      "readOnlyShort": "Somente leitura",
+      "readOnlyTitle": "Visualização somente leitura",
+      "readOnlyDescription": "Seu perfil pode acompanhar as tarefas, mas não pode criar, editar, concluir ou cancelar."
+    },
+    "toast": {
+      "created": "Tarefa criada",
+      "updated": "Tarefa atualizada",
+      "completed": "Tarefa concluída",
+      "reopened": "Tarefa reaberta",
+      "canceled": "Tarefa cancelada"
+    },
+    "cancel": {
+      "title": "Cancelar tarefa",
+      "description": "Cancelar “{title}”? Ela sairá das listas ativas, mas o histórico será preservado."
+    },
+    "activity": {
+      "title": "Atividade de hoje",
+      "description": "Movimentações recentes da equipe",
+      "errorTitle": "Falha ao carregar atividades",
+      "emptyTitle": "O dia está começando",
+      "emptyDescription": "Atualizações de tarefas, negócios, pedidos e notas aparecerão aqui.",
+      "system": "Sistema"
+    },
+    "widget": {
+      "title": "Meu dia",
+      "description": "{overdue} atrasadas · {today} para hoje",
+      "empty": "Tudo em dia por aqui.",
+      "error": "Não foi possível carregar suas tarefas.",
+      "openToday": "Abrir Hoje"
+    }
+  },
   "Contacts": {
     "page": {
       "title": "Contatos",
@@ -511,6 +643,7 @@
         "notes": "Notas",
         "custom": "Campos personalizados",
         "deals": "Negócios",
+        "tasks": "Tarefas",
         "tags": "Etiquetas",
         "noTags": "Nenhuma etiqueta",
         "noDeals": "Nenhum negócio",
@@ -780,6 +913,7 @@
       "sending": "Enviando",
       "sent": "Enviado",
       "failed": "Falhou",
+      "skipped": "Suprimido",
       "pending": "Pendente",
       "delivered": "Entregue",
       "read": "Lido",
@@ -789,6 +923,8 @@
     "detail": {
       "backToBroadcasts": "Voltar para disparos",
       "notFound": "Disparo não encontrado",
+      "allSkipped": "Nenhuma mensagem foi enviada: {count} destinatário(s) haviam recusado comunicações de marketing pelo WhatsApp.",
+      "marketingOptOutReason": "Contato recusou mensagens de marketing no WhatsApp",
       "template": "Modelo: {name}",
       "createdAt": "Criado em {date}",
       "deletePrompt": "Excluir este disparo?",
@@ -812,7 +948,7 @@
         "sent": "Enviado",
         "delivered": "Entregue",
         "read": "Lido",
-        "error": "Erro"
+        "error": "Motivo / detalhe"
       },
       "stats": {
         "totalRecipients": "Total de destinatários",
@@ -820,7 +956,8 @@
         "delivered": "Entregues",
         "read": "Lidos",
         "replied": "Respondidos",
-        "failed": "Falharam"
+        "failed": "Falharam",
+        "skipped": "Suprimidos"
       },
       "toastFailedDelete": "Falha ao excluir: {error}",
       "toastDeleted": "Disparo excluído"
@@ -1241,6 +1378,7 @@
           "keywordEmpty": "As palavras-chave não podem estar vazias.",
           "matchTypeInvalid": "O tipo de correspondência precisa ser \"exata\" ou \"contém\".",
           "scheduleRequired": "Um agendamento é obrigatório.",
+          "unsupported": "Este gatilho ainda não está disponível.",
           "tagRequired": "Uma tag é obrigatória.",
           "replyIdRequired": "Pelo menos um reply id é obrigatório.",
           "replyIdEmpty": "Os reply ids não podem estar vazios.",
@@ -1615,8 +1753,9 @@
     "fullNamePlaceholder": "Maria Silva",
     "emailLabel": "E-mail",
     "emailPlaceholder": "voce@exemplo.com",
-    "phoneLabel": "Número de WhatsApp",
+    "phoneLabel": "Número de WhatsApp (opcional)",
     "phonePlaceholder": "(11) 91234-5678",
+    "marketingConsent": "Aceito receber dicas de onboarding e ofertas do IMCRM pelo WhatsApp. Posso sair a qualquer momento.",
     "passwordLabel": "Senha",
     "passwordPlaceholder": "Pelo menos 6 caracteres",
     "confirmPasswordLabel": "Confirmar senha",

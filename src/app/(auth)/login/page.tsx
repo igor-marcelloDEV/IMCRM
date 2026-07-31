@@ -28,7 +28,7 @@ function LoginPageInner() {
   const searchParams = useSearchParams();
   // Forwarded from `/join/<token>` when the visitor already has an
   // account. After a successful sign-in we send them to the join
-  // page to accept rather than to /dashboard.
+  // page to accept rather than to /today.
   const inviteToken = searchParams.get("invite");
   const t = useTranslations("LoginPage");
 
@@ -56,7 +56,7 @@ function LoginPageInner() {
 
     // Full-page navigation (not router.push) so the browser issues a
     // fresh top-level request that carries the just-written Supabase
-    // auth cookies to the middleware gating /dashboard. A soft
+    // auth cookies to the middleware gating /today. A soft
     // client-side navigation can reach the protected route before the
     // server observes the new session, so the middleware bounces it
     // back to /login — which looks like the page "just refreshing"
@@ -64,7 +64,7 @@ function LoginPageInner() {
     // reload the invite-accept flow already uses in join/[token].
     const destination = inviteToken
       ? `/join/${encodeURIComponent(inviteToken)}`
-      : "/dashboard";
+      : "/today";
     window.location.href = destination;
   };
 

@@ -1,4 +1,8 @@
 import { createClient } from "@/lib/supabase/client";
+import {
+  CHAT_MEDIA_BUCKET,
+  CHAT_MEDIA_PREVIEW_TTL_SECONDS,
+} from "@/lib/storage/chat-media";
 
 /**
  * Shared media-upload helper for Supabase Storage buckets that use the
@@ -62,16 +66,19 @@ export function buildMediaPath(
 }
 
 export interface UploadAccountMediaResult {
-  /** Public URL Meta can fetch at send time. */
-  publicUrl: string;
+  /**
+   * Public URL for public buckets; short-lived signed preview URL for the
+   * private chat bucket. Durable records must persist `path`, not this URL.
+   */
+  url: string;
   /** Storage object path (account-scoped). */
   path: string;
 }
 
 /**
- * Upload a file to an account-scoped Storage bucket and return its public
- * URL. Throws with a user-facing message on auth / account-resolution /
- * upload failure — callers surface it via a toast.
+ * Upload a file to an account-scoped Storage bucket. `chat-media` returns
+ * only a temporary signed preview; buckets intentionally left public in
+ * this phase (flow/catalog assets) retain their public URL.
  *
  * Size validation is the caller's responsibility (limits can differ per
  * feature); `MEDIA_MAX_BYTES` is exported for the common case.
@@ -103,24 +110,38 @@ export async function uploadAccountMedia(
   }
 
   const path = buildMediaPath(profile.account_id as string, file.name);
-  const { error: upErr } = await supabase.storage.from(bucket).upload(path, file, {
+  const storage = supabase.storage.from(bucket);
+  const { error: upErr } = await storage.upload(path, file, {
     cacheControl: "3600",
     upsert: false,
     contentType: file.type,
   });
   if (upErr) throw new Error(upErr.message);
 
+  if (bucket === CHAT_MEDIA_BUCKET) {
+    const { data, error } = await storage.createSignedUrl(
+      path,
+      CHAT_MEDIA_PREVIEW_TTL_SECONDS,
+    );
+    if (error || !data?.signedUrl) {
+      // The upload cannot be previewed or sent without a signed URL. Avoid
+      // leaving an orphan if signing unexpectedly fails.
+      await storage.remove([path]).catch(() => undefined);
+      throw new Error(error?.message ?? "Could not create a media preview.");
+    }
+    return { url: data.signedUrl, path };
+  }
+
   const {
     data: { publicUrl },
-  } = supabase.storage.from(bucket).getPublicUrl(path);
-
-  return { publicUrl, path };
+  } = storage.getPublicUrl(path);
+  return { url: publicUrl, path };
 }
 
 /**
  * Delete a previously-uploaded object. Used to GC media that was staged
  * (uploaded) but never sent — a cancelled draft or a failed Meta send —
- * so abandoned attachments don't accumulate in the public bucket. The
+ * so abandoned attachments don't accumulate in Storage. The
  * DELETE is gated by the same account-scoped RLS policy as the upload,
  * so a caller can only remove objects under their own account folder.
  *

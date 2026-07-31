@@ -146,9 +146,9 @@ export function TemplateManager() {
   // doesn't take the template off Meta as well as locally.
   const [templateToDelete, setTemplateToDelete] =
     useState<MessageTemplate | null>(null);
-  // Header-image upload (issue #230). Uploads to the account-scoped
-  // chat-media bucket and stores the public URL in header_media_url; the
-  // submit route turns that into a Meta Resumable-Upload handle.
+  // Header-image upload (issue #230). Template assets stay in flow-media,
+  // which remains public in this phase; private chat-media is reserved for
+  // customer conversation attachments.
   const [uploadingHeader, setUploadingHeader] = useState(false);
   const headerFileRef = useRef<HTMLInputElement>(null);
 
@@ -472,8 +472,10 @@ export function TemplateManager() {
     }
     setUploadingHeader(true);
     try {
-      const { publicUrl } = await uploadAccountMedia('chat-media', file);
-      setForm((f) => ({ ...f, header_media_url: publicUrl }));
+      // Template samples stay in the intentionally-public flow-media bucket;
+      // chat-media is private and reserved for conversation history.
+      const { url } = await uploadAccountMedia('flow-media', file);
+      setForm((f) => ({ ...f, header_media_url: url }));
       toast.success(t('toastUploadSuccess'));
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t('toastUploadFailed'));

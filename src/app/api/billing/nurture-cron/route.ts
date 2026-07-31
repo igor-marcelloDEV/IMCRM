@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/billing/admin-client'
 import { runAutomationsForTrigger } from '@/lib/automations/engine'
 import { findOrCreateContact } from '@/lib/whatsapp/inbound'
+import { hashTrialClaimToken } from '@/lib/billing/trial-claim'
 
 /**
  * Billing retention drip — two passes, same cron, same shared-secret
@@ -10,7 +11,7 @@ import { findOrCreateContact } from '@/lib/whatsapp/inbound'
  *
  *   24h since signup, still no paid/trialing subscription  -> 20% coupon,
  *     valid 24h, sent over WhatsApp.
- *   48h since signup, still nothing -> offer a 24h free trial instead.
+ *   48h since signup, still nothing -> offer a 7-day free trial instead.
  *
  * The actual WhatsApp copy is a normal Automation (trigger_type
  * 'billing_nudge_24h' / 'billing_nudge_48h') on the platform
@@ -87,9 +88,18 @@ export async function GET(request: Request) {
     operatorOwnerUserId: operatorAccount.owner_user_id,
     buildVars: async (accountId) => {
       const token = randomBytes(24).toString('base64url')
+      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
       const { error } = await db
         .from('billing_nudges')
-        .upsert({ account_id: accountId, trial_claim_token: token }, { onConflict: 'account_id' })
+        .upsert(
+          {
+            account_id: accountId,
+            trial_claim_token: null,
+            trial_claim_token_hash: hashTrialClaimToken(token),
+            trial_claim_expires_at: expiresAt.toISOString(),
+          },
+          { onConflict: 'account_id' },
+        )
       if (error) {
         console.error('[billing nurture-cron] trial token upsert failed:', error)
         return null
@@ -148,11 +158,17 @@ async function runPass(db: AdminClient, config: PassConfig): Promise<number> {
 
     const { data: ownerProfile } = await db
       .from('profiles')
-      .select('phone, full_name')
+      .select('phone, full_name, marketing_opt_in_at, marketing_opt_out_at')
       .eq('account_id', candidate.id)
       .eq('account_role', 'owner')
       .maybeSingle()
-    if (!ownerProfile?.phone) continue
+    if (
+      !ownerProfile?.phone ||
+      !ownerProfile.marketing_opt_in_at ||
+      ownerProfile.marketing_opt_out_at
+    ) {
+      continue
+    }
 
     const vars = await config.buildVars(candidate.id)
     if (!vars) continue
@@ -165,6 +181,50 @@ async function runPass(db: AdminClient, config: PassConfig): Promise<number> {
       ownerProfile.full_name || ownerProfile.phone,
     )
     if (!contactOutcome) continue
+
+    const { data: existingPreference, error: preferenceReadError } = await db
+      .from('contact_channel_preferences')
+      .select('status, opted_out_at')
+      .eq('contact_id', contactOutcome.contact.id)
+      .eq('channel', 'whatsapp')
+      .eq('purpose', 'marketing')
+      .maybeSingle()
+    if (preferenceReadError) {
+      console.error('[billing nurture-cron] consent ledger read failed:', preferenceReadError)
+      continue
+    }
+    if (existingPreference?.status === 'opted_out') {
+      await db
+        .from('profiles')
+        .update({
+          marketing_opt_out_at:
+            existingPreference.opted_out_at ?? new Date().toISOString(),
+        })
+        .eq('account_id', candidate.id)
+        .eq('account_role', 'owner')
+      continue
+    }
+
+    const { error: consentError } = await db
+      .from('contact_channel_preferences')
+      .upsert(
+        {
+          account_id: config.operatorAccountId,
+          contact_id: contactOutcome.contact.id,
+          channel: 'whatsapp',
+          purpose: 'marketing',
+          status: 'opted_in',
+          source: 'account_signup',
+          proof: { source_account_id: candidate.id },
+          consented_at: ownerProfile.marketing_opt_in_at,
+          opted_out_at: null,
+        },
+        { onConflict: 'contact_id,channel,purpose' },
+      )
+    if (consentError) {
+      console.error('[billing nurture-cron] consent ledger write failed:', consentError)
+      continue
+    }
 
     await runAutomationsForTrigger({
       accountId: config.operatorAccountId,

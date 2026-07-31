@@ -23,6 +23,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { isUniqueViolation } from '@/lib/contacts/dedupe';
 import { runAutomationsForTrigger } from '@/lib/automations/engine';
 import { dispatchWebhookEvent } from '@/lib/webhooks/deliver';
+import { recordInboundMessage } from '@/lib/messages/record-inbound';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type ContactRow = any;
@@ -250,31 +251,23 @@ export async function ingestInstagramMessage(
   }
 
   const contentType = event.attachmentUrl ? 'document' : 'text';
-  const { error: msgError } = await db.from('messages').insert({
-    conversation_id: conversation.id,
-    sender_type: 'customer',
-    content_type: contentType,
-    content_text: event.text,
-    media_url: event.attachmentUrl,
-    provider: 'instagram',
-    provider_message_key: event.mid,
-    status: 'delivered',
-    created_at: new Date(event.timestamp).toISOString(),
-  });
-  if (msgError) {
-    console.error('[instagram/inbound] Error inserting message:', msgError);
+  let recorded;
+  try {
+    recorded = await recordInboundMessage(db, {
+      conversationId: conversation.id,
+      contentType,
+      contentText: event.text,
+      mediaUrl: event.attachmentUrl,
+      provider: 'instagram',
+      providerMessageKey: event.mid,
+      createdAt: new Date(event.timestamp).toISOString(),
+    });
+  } catch (error) {
+    console.error('[instagram/inbound] Error recording message:', error);
     return;
   }
 
-  await db
-    .from('conversations')
-    .update({
-      last_message_text: event.text || `[${contentType}]`,
-      last_message_at: new Date().toISOString(),
-      unread_count: (conversation.unread_count || 0) + 1,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', conversation.id);
+  if (!recorded) return;
 
   await dispatchWebhookEvent(db, accountId, 'message.received', {
     conversation_id: conversation.id,

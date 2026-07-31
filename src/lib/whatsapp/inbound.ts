@@ -24,6 +24,11 @@ import { runAutomationsForTrigger } from '@/lib/automations/engine';
 import { dispatchInboundToFlows } from '@/lib/flows/engine';
 import { dispatchInboundToAiReply } from '@/lib/ai/auto-reply';
 import { dispatchWebhookEvent } from '@/lib/webhooks/deliver';
+import { recordInboundMessage } from '@/lib/messages/record-inbound';
+import {
+  isWhatsAppOptOutMessage,
+  optOutWhatsAppMarketing,
+} from '@/lib/privacy/contact-preferences';
 import type { WhatsAppProviderType } from '@/types';
 
 export interface NormalizedInboundMessage {
@@ -296,52 +301,65 @@ export async function ingestInboundMessage(
     }
   }
 
-  // Whether this is the contact's first-ever inbound message, computed
-  // BEFORE the insert below so the count is accurate.
-  const { count: priorCustomerMsgCount } = await db
-    .from('messages')
-    .select('id', { count: 'exact', head: true })
-    .eq('conversation_id', conversation.id)
-    .eq('sender_type', 'customer');
-  const isFirstInboundMessage = (priorCustomerMsgCount ?? 0) === 0;
-
-  const { error: msgError } = await db.from('messages').insert({
-    conversation_id: conversation.id,
-    sender_type: 'customer',
-    content_type: message.contentType,
-    content_text: message.contentText,
-    media_url: message.mediaUrl ?? null,
-    // Legacy column — only meaningful for Meta (status webhooks match
-    // on it). Baileys rows rely on provider_message_key instead.
-    message_id: message.provider === 'meta_cloud_api' ? message.providerMessageKey : null,
-    provider: message.provider,
-    provider_message_key: message.providerMessageKey,
-    status: 'delivered',
-    created_at: message.createdAt ?? new Date().toISOString(),
-    reply_to_message_id: replyToInternalId,
-    interactive_reply_id: message.interactiveReplyId ?? null,
-  });
-
-  if (msgError) {
-    console.error('[inbound] Error inserting message:', msgError);
+  // The RPC atomically claims the provider key, inserts the message,
+  // increments unread_count and decides the first-inbound trigger.
+  let recorded;
+  try {
+    recorded = await recordInboundMessage(db, {
+      conversationId: conversation.id,
+      contentType: message.contentType,
+      contentText: message.contentText,
+      mediaUrl: message.mediaUrl,
+      provider: message.provider,
+      providerMessageKey: message.providerMessageKey,
+      createdAt: message.createdAt ?? new Date().toISOString(),
+      replyToMessageId: replyToInternalId,
+      interactiveReplyId: message.interactiveReplyId,
+    });
+  } catch (error) {
+    console.error('[inbound] Error recording message:', error);
     return null;
   }
 
-  const { error: convError } = await db
-    .from('conversations')
-    .update({
-      last_message_text: message.contentText || `[${message.contentType}]`,
-      last_message_at: new Date().toISOString(),
-      unread_count: (conversation.unread_count || 0) + 1,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', conversation.id);
-
-  if (convError) {
-    console.error('[inbound] Error updating conversation:', convError);
-  }
+  // A retry owns the same provider key and returns no row. Stop before
+  // triggering Flows, automations, AI or outgoing webhooks again.
+  if (!recorded) return null;
+  const isFirstInboundMessage = recorded.isFirstInbound;
 
   await flagBroadcastReplyIfAny(db, accountId, contact.id);
+
+  // An explicit opt-out is an operational command, not automation
+  // content. Persist the suppression and stop before any Flow, rule or
+  // AI reply can turn "SAIR" into another marketing interaction.
+  if (isWhatsAppOptOutMessage(message.contentText)) {
+    try {
+      await optOutWhatsAppMarketing(db, {
+        accountId,
+        contactId: contact.id,
+        providerMessageKey: message.providerMessageKey,
+      });
+    } catch (error) {
+      // Fail closed for this inbound message: even if persistence is
+      // temporarily unavailable, do not answer an opt-out with a bot.
+      console.error('[inbound] Error recording WhatsApp opt-out:', error);
+    }
+
+    await dispatchWebhookEvent(db, accountId, 'message.received', {
+      conversation_id: conversation.id,
+      contact_id: contact.id,
+      whatsapp_message_id: message.providerMessageKey,
+      content_type: message.contentType,
+      text: message.contentText,
+      marketing_opt_out: true,
+    });
+
+    return {
+      conversationId: conversation.id,
+      contactId: contact.id,
+      contactCreated: contactOutcome.wasCreated,
+      isFirstInboundMessage,
+    };
+  }
 
   // Flow runner dispatch — same semantics as the Meta webhook: a
   // consumed message suppresses the content-level automation triggers

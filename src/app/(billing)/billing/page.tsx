@@ -1,4 +1,4 @@
-"use client";
+'use client';
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { Loader2, CheckCircle2, Copy } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
-import { useBillingStatus, hasBillingAccess, type BillingStatus } from "@/hooks/use-billing-status";
+import { useBillingStatus, type BillingStatus } from "@/hooks/use-billing-status";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -55,7 +55,8 @@ function formatCents(cents: number, currency: string): string {
 export default function BillingPage() {
   const t = useTranslations("Billing");
   const { accountId, user } = useAuth();
-  const status = useBillingStatus(accountId);
+  const billing = useBillingStatus(accountId);
+  const status = billing.status;
 
   const [plans, setPlans] = useState<BillingPlan[] | null>(null);
   const [subscription, setSubscription] = useState<SubscriptionRow | null>(null);
@@ -200,7 +201,7 @@ export default function BillingPage() {
     } catch {
       toast.error(t("pixCopyFailed"));
     }
-  }, []);
+  }, [t]);
 
   if (plans === null) {
     return (
@@ -210,7 +211,7 @@ export default function BillingPage() {
     );
   }
 
-  const alreadyPaying = subscription && hasBillingAccess(status);
+  const alreadyPaying = subscription && billing.hasAccess;
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
@@ -246,7 +247,7 @@ export default function BillingPage() {
             <CardTitle className="text-foreground">{t("pickPlan")}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-6">
-            {!hasBillingAccess(status) && status !== "loading" && status !== "none" && (
+            {!billing.hasAccess && status !== "loading" && status !== "none" && (
               <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-500">
                 {t(`gateReason.${status}`)}
               </div>

@@ -82,7 +82,7 @@ export interface CreateOrGetCustomerArgs {
    *  with "Para criar esta cobrança é necessário preencher o CPF ou
    *  CNPJ do cliente." Digits only, 11 (CPF) or 14 (CNPJ). */
   cpfCnpj: string
-  /** `accounts.id` — lets us find the Asaas customer back from our
+  /** `contacts.id` — lets us find the Asaas customer back from our
    *  own id without storing a second mapping table. */
   externalReference: string
 }
@@ -198,6 +198,10 @@ export interface AsaasPixPayment {
   id: string
   status: string
   invoiceUrl: string
+  customer?: string
+  value?: number
+  billingType?: AsaasBillingType
+  externalReference?: string
 }
 
 export interface AsaasPixQrCode {
@@ -231,11 +235,74 @@ export async function createPixPayment(
       externalReference,
     }),
   })
-  const qrCode = await asaasFetch<AsaasPixQrCode>(
-    config,
-    `/payments/${payment.id}/pixQrCode`,
-  )
+  const qrCode = await getPixQrCode(config, payment.id)
   return { payment, qrCode }
+}
+
+export async function getPixQrCode(
+  config: AsaasClientConfig,
+  paymentId: string,
+): Promise<AsaasPixQrCode> {
+  return asaasFetch<AsaasPixQrCode>(
+    config,
+    `/payments/${encodeURIComponent(paymentId)}/pixQrCode`,
+  )
+}
+
+/**
+ * Recover a charge created by an earlier ambiguous attempt before
+ * creating another one. Asaas supports filtering payments by our
+ * externalReference; the checkout uses the immutable order UUID.
+ *
+ * A local DB lease still serializes normal concurrent attempts. This
+ * lookup covers the harder failure mode where Asaas accepted POST
+ * /payments but the response or subsequent local persistence failed.
+ */
+export async function createOrGetPixPayment(
+  args: CreatePixPaymentArgs,
+): Promise<{
+  payment: AsaasPixPayment
+  qrCode: AsaasPixQrCode
+  reused: boolean
+}> {
+  const { config, customerId, value, externalReference } = args
+  const query = new URLSearchParams({
+    externalReference,
+    billingType: 'PIX',
+    limit: '10',
+  })
+  const existing = await asaasFetch<{ data: AsaasPixPayment[] }>(
+    config,
+    `/payments?${query.toString()}`,
+  )
+  const payment = existing.data[0]
+
+  if (payment) {
+    if (payment.customer && payment.customer !== customerId) {
+      throw new Error(
+        'A cobrança existente não pertence ao cliente esperado.',
+      )
+    }
+    if (
+      typeof payment.value === 'number' &&
+      Math.round(payment.value * 100) !== Math.round(value * 100)
+    ) {
+      throw new Error(
+        'A cobrança existente não corresponde ao valor do pedido.',
+      )
+    }
+    if (payment.billingType && payment.billingType !== 'PIX') {
+      throw new Error('A cobrança existente não é PIX.')
+    }
+    return {
+      payment,
+      qrCode: await getPixQrCode(config, payment.id),
+      reused: true,
+    }
+  }
+
+  const created = await createPixPayment(args)
+  return { ...created, reused: false }
 }
 
 // ============================================================

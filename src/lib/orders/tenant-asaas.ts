@@ -19,11 +19,16 @@ export async function getTenantAsaasConfig(
   db: SupabaseClient,
   accountId: string,
 ): Promise<AsaasClientConfig | null> {
-  const { data } = await db
+  const { data, error } = await db
     .from("tenant_payment_configs")
     .select("encrypted_asaas_api_key, asaas_env")
     .eq("account_id", accountId)
     .maybeSingle();
+  if (error) {
+    throw new Error(
+      `Não foi possível carregar a configuração Asaas da conta: ${error.message}`,
+    );
+  }
   const row = data as { encrypted_asaas_api_key: string | null; asaas_env: AsaasEnv } | null;
   if (!row?.encrypted_asaas_api_key) return null;
 

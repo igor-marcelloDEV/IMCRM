@@ -43,10 +43,10 @@ import { MessageBubble } from "./message-bubble";
 import { MessageActions } from "./message-actions";
 import {
   MessageComposer,
-  CHAT_MEDIA_BUCKET,
   type SendMediaPayload,
 } from "./message-composer";
 import { deleteAccountMedia } from "@/lib/storage/upload-media";
+import { CHAT_MEDIA_BUCKET } from "@/lib/storage/chat-media";
 import { TemplatePicker } from "./template-picker";
 import { AiThreadBanner } from "./ai-thread-banner";
 import { buildReplyPreview } from "./reply-quote";
@@ -521,7 +521,7 @@ export function MessageThread({
         sender_type: "agent",
         content_type: payload.kind,
         content_text: contentText,
-        media_url: payload.mediaUrl,
+        media_url: payload.previewUrl,
         status: "sending",
         created_at: new Date().toISOString(),
         reply_to_message_id: payload.replyToId,
@@ -536,7 +536,7 @@ export function MessageThread({
           body: JSON.stringify({
             conversation_id: conversation.id,
             message_type: payload.kind,
-            media_url: payload.mediaUrl,
+            media_path: payload.path,
             content_text: contentText,
             filename: payload.filename,
             reply_to_message_id: payload.replyToId,
@@ -551,7 +551,7 @@ export function MessageThread({
           toast.error(t("toastFailedSend", { reason }));
           onUpdateMessage(tempId, { status: "failed" });
           // The upload never reached the recipient — GC the orphaned
-          // object rather than leaving it in the public bucket forever.
+          // object rather than leaving it in the private bucket forever.
           void deleteAccountMedia(CHAT_MEDIA_BUCKET, payload.path).catch(() => {});
           return;
         }

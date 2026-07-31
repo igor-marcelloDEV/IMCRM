@@ -141,7 +141,6 @@ const TRIGGER_OPTIONS: { value: AutomationTriggerType }[] = [
   { value: "new_contact_created" },
   { value: "conversation_assigned" },
   { value: "tag_added" },
-  { value: "time_based" },
   { value: "order_paid" },
   { value: "instagram_comment_keyword" },
 ]

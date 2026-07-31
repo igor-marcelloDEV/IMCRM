@@ -1,190 +1,250 @@
-import { timingSafeEqual } from 'node:crypto'
-import { NextResponse } from 'next/server'
-import { supabaseAdmin } from '@/lib/billing/admin-client'
+import { createHash, timingSafeEqual } from 'node:crypto';
+import { NextResponse } from 'next/server';
 
-/**
- * Asaas payment-gateway webhook receiver.
- *
- * Auth: Asaas echoes back the "webhook authentication token" you set
- * when configuring the webhook in the Asaas dashboard, via the
- * `asaas-access-token` header on every request — not an HMAC
- * signature like Meta's webhook, just a shared-secret header. Same
- * timing-safe compare pattern as the automations/flows cron routes.
- *
- * Processed synchronously (no `after()`, unlike the WhatsApp webhook)
- * — there's no slow network call in the critical path here, just a
- * couple of indexed DB writes, so there's no risk of the Vercel
- * function freezing mid-work after the response is sent.
- *
- * Payload shape confirmed against Asaas' docs: `{ id, event,
- * dateCreated, payment: {...} }` for payment events, `{ id, event,
- * dateCreated, subscription: {...} }` for subscription events. The
- * `payment`/`subscription` objects echo back `externalReference` —
- * we always set that to our own `subscriptions.id` at creation time
- * (see src/lib/billing/asaas.ts), so it's the correlation key back
- * to our row instead of trying to match on Asaas' own ids.
- */
+import { supabaseAdmin } from '@/lib/billing/admin-client';
 
 interface AsaasWebhookPayment {
-  id: string
-  value: number
-  status: string
-  billingType?: 'PIX' | 'BOLETO' | 'CREDIT_CARD'
-  dueDate?: string
-  externalReference?: string
-  subscription?: string
+  id?: unknown;
+  value?: unknown;
+  externalReference?: unknown;
+  billingType?: unknown;
+  dueDate?: unknown;
+  subscription?: unknown;
 }
 
 interface AsaasWebhookSubscription {
-  id: string
-  externalReference?: string
+  externalReference?: unknown;
 }
 
 interface AsaasWebhookBody {
-  event: string
-  payment?: AsaasWebhookPayment
-  subscription?: AsaasWebhookSubscription
+  id?: unknown;
+  event?: unknown;
+  payment?: AsaasWebhookPayment;
+  subscription?: AsaasWebhookSubscription;
 }
 
-const CONFIRMED_EVENTS = new Set(['PAYMENT_CONFIRMED', 'PAYMENT_RECEIVED'])
+interface RecordedBillingEvent {
+  outcome_status: 'pending' | 'processing' | 'processed' | 'ignored' | 'failed';
+  should_process: boolean;
+}
 
-export async function POST(request: Request) {
-  const expected = process.env.ASAAS_WEBHOOK_TOKEN
-  if (!expected) {
-    return NextResponse.json({ error: 'billing webhook não configurado' }, { status: 503 })
-  }
-  const supplied = request.headers.get('asaas-access-token') ?? ''
-  const suppliedBuf = Buffer.from(supplied)
-  const expectedBuf = Buffer.from(expected)
+interface ProcessedBillingEvent {
+  outcome_status: 'processed' | 'ignored' | 'failed';
+  error_message: string | null;
+}
+
+const PAYMENT_EVENTS = new Set([
+  'PAYMENT_CONFIRMED',
+  'PAYMENT_RECEIVED',
+  'PAYMENT_OVERDUE',
+]);
+const MAX_BILLING_WEBHOOK_BYTES = 262_144;
+const MAX_PAYMENT_VALUE = 21_474_836.47;
+
+function json(
+  body: Record<string, unknown>,
+  init: ResponseInit = {}
+): NextResponse {
+  const headers = new Headers(init.headers);
+  headers.set('Cache-Control', 'no-store');
+  return NextResponse.json(body, { ...init, headers });
+}
+
+function hasValidToken(request: Request, expected: string): boolean {
+  const supplied = request.headers.get('asaas-access-token') ?? '';
+  const suppliedDigest = createHash('sha256').update(supplied).digest();
+  const expectedDigest = createHash('sha256').update(expected).digest();
+
+  return timingSafeEqual(suppliedDigest, expectedDigest);
+}
+
+function validateEvent(
+  body: AsaasWebhookBody
+): { eventId: string; eventType: string } | { error: string } {
+  const eventId = typeof body.id === 'string' ? body.id.trim() : '';
+  const eventType = typeof body.event === 'string' ? body.event.trim() : '';
+
   if (
-    suppliedBuf.length !== expectedBuf.length ||
-    !timingSafeEqual(suppliedBuf, expectedBuf)
+    !eventId ||
+    eventId.length > 255 ||
+    !eventType ||
+    eventType.length > 100
   ) {
-    return NextResponse.json({ error: 'Não autorizado' }, { status: 401 })
+    return { error: 'Evento inválido' };
   }
 
-  let body: AsaasWebhookBody
-  try {
-    body = await request.json()
-  } catch {
-    return NextResponse.json({ error: 'JSON inválido' }, { status: 400 })
-  }
+  if (PAYMENT_EVENTS.has(eventType)) {
+    const paymentId =
+      typeof body.payment?.id === 'string' ? body.payment.id.trim() : '';
+    const externalReference =
+      typeof body.payment?.externalReference === 'string'
+        ? body.payment.externalReference.trim()
+        : '';
+    const value = body.payment?.value;
 
-  const db = supabaseAdmin()
-
-  try {
-    if (body.payment && CONFIRMED_EVENTS.has(body.event)) {
-      await handlePaymentConfirmed(db, body.payment)
-    } else if (body.payment && body.event === 'PAYMENT_OVERDUE') {
-      await handlePaymentOverdue(db, body.payment)
-    } else if (body.subscription && body.event === 'SUBSCRIPTION_DELETED') {
-      await handleSubscriptionDeleted(db, body.subscription)
-    } else {
-      // Unhandled event type — ack anyway so Asaas doesn't retry
-      // forever over something we deliberately don't act on.
-      console.warn('[billing webhook] unhandled event:', body.event)
+    if (
+      !paymentId ||
+      paymentId.length > 255 ||
+      !externalReference ||
+      externalReference.length > 255 ||
+      typeof value !== 'number' ||
+      !Number.isFinite(value) ||
+      value < 0 ||
+      value > MAX_PAYMENT_VALUE
+    ) {
+      return { error: 'Evento de pagamento inválido' };
     }
-  } catch (err) {
-    // A processing bug shouldn't make Asaas hammer retries forever
-    // either, but IS worth knowing about loudly.
-    console.error('[billing webhook] processing failed:', body.event, err)
   }
 
-  return NextResponse.json({ received: true })
-}
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AdminClient = any
-
-async function loadSubscriptionByExternalRef(db: AdminClient, externalReference?: string) {
-  if (!externalReference) return null
-  // Point lookups by id rather than an embedded FK join
-  // (`billing_plans(cycle_days)`) — an embed needs PostgREST's schema
-  // cache to already know the plan_id -> billing_plans relationship,
-  // which can be stale right after a migration adds a new FK (see the
-  // same rationale in src/hooks/use-auth.tsx, issue #294).
-  const { data: subscription } = await db
-    .from('subscriptions')
-    .select('id, account_id, plan_id')
-    .eq('id', externalReference)
-    .maybeSingle()
-  if (!subscription) return null
-
-  const { data: plan } = await db
-    .from('billing_plans')
-    .select('cycle_days')
-    .eq('id', subscription.plan_id)
-    .maybeSingle()
-
-  return { ...subscription, cycleDays: plan?.cycle_days ?? 30 }
-}
-
-async function handlePaymentConfirmed(db: AdminClient, payment: AsaasWebhookPayment) {
-  const subscription = await loadSubscriptionByExternalRef(db, payment.externalReference)
-  if (!subscription) {
-    console.warn('[billing webhook] PAYMENT_CONFIRMED for unknown subscription:', payment.externalReference)
-    return
+  if (eventType === 'SUBSCRIPTION_DELETED') {
+    const externalReference =
+      typeof body.subscription?.externalReference === 'string'
+        ? body.subscription.externalReference.trim()
+        : '';
+    if (!externalReference || externalReference.length > 255) {
+      return { error: 'Evento de assinatura inválido' };
+    }
   }
 
-  await db.from('payments').upsert(
-    {
-      gateway_payment_id: payment.id,
-      subscription_id: subscription.id,
-      account_id: subscription.account_id,
-      amount_cents: Math.round((payment.value ?? 0) * 100),
-      currency: 'BRL',
-      status: 'confirmed',
-      billing_type: payment.billingType ? payment.billingType.toLowerCase() : null,
-      due_date: payment.dueDate ?? null,
-      paid_at: new Date().toISOString(),
-      raw_payload: payment,
-    },
-    { onConflict: 'gateway_payment_id' },
-  )
+  return { eventId, eventType };
+}
 
-  const cycleDays = subscription.cycleDays
-  const now = new Date()
-  const periodEnd = new Date(now.getTime() + cycleDays * 24 * 60 * 60 * 1000)
+function persistedPayload(
+  body: AsaasWebhookBody,
+  eventType: string
+): Record<string, unknown> {
+  if (PAYMENT_EVENTS.has(eventType)) {
+    const payment = body.payment!;
+    const persistedPayment: Record<string, unknown> = {
+      id: (payment.id as string).trim(),
+      value: payment.value,
+      externalReference: (payment.externalReference as string).trim(),
+    };
 
-  await db
-    .from('subscriptions')
-    .update({
-      status: 'active',
-      billing_type: payment.billingType ? payment.billingType.toLowerCase() : null,
-      gateway_subscription_id: payment.subscription ?? null,
-      current_period_start: now.toISOString(),
-      current_period_end: periodEnd.toISOString(),
+    for (const field of ['billingType', 'dueDate', 'subscription'] as const) {
+      const value = payment[field];
+      if (typeof value === 'string' && value.length <= 255) {
+        persistedPayment[field] = value.trim();
+      }
+    }
+    return { payment: persistedPayment };
+  }
+
+  if (eventType === 'SUBSCRIPTION_DELETED') {
+    return {
+      subscription: {
+        externalReference: (
+          body.subscription!.externalReference as string
+        ).trim(),
+      },
+    };
+  }
+
+  // Unknown event types are still recorded and acknowledged, but their
+  // unrelated gateway fields (which can include customer PII) are not.
+  return {};
+}
+
+/**
+ * Platform Asaas webhook.
+ *
+ * The event is persisted before the billing transition.  The SQL processor
+ * serializes replays by Asaas event id and by gateway payment id, so
+ * PAYMENT_CONFIRMED + PAYMENT_RECEIVED for one charge cannot grant two
+ * periods.  Database failures return 503 and remain recorded as `failed`;
+ * Asaas can safely retry the same event.
+ */
+export async function POST(request: Request) {
+  const expected = process.env.ASAAS_WEBHOOK_TOKEN;
+  if (!expected) {
+    return json(
+      { error: 'Webhook de cobrança não configurado' },
+      { status: 503 }
+    );
+  }
+
+  if (!hasValidToken(request, expected)) {
+    return json({ error: 'Não autorizado' }, { status: 401 });
+  }
+
+  const declaredLength = Number.parseInt(
+    request.headers.get('content-length') ?? '',
+    10
+  );
+  if (
+    Number.isFinite(declaredLength) &&
+    declaredLength > MAX_BILLING_WEBHOOK_BYTES
+  ) {
+    return json({ error: 'Payload muito grande' }, { status: 413 });
+  }
+
+  let body: AsaasWebhookBody;
+  try {
+    const rawBody = await request.text();
+    if (Buffer.byteLength(rawBody, 'utf8') > MAX_BILLING_WEBHOOK_BYTES) {
+      return json({ error: 'Payload muito grande' }, { status: 413 });
+    }
+    const parsed = JSON.parse(rawBody) as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return json({ error: 'Evento inválido' }, { status: 400 });
+    }
+    body = parsed as AsaasWebhookBody;
+  } catch {
+    return json({ error: 'JSON inválido' }, { status: 400 });
+  }
+
+  const validated = validateEvent(body);
+  if ('error' in validated) {
+    return json({ error: validated.error }, { status: 400 });
+  }
+
+  const db = supabaseAdmin();
+  const { data: recordedData, error: recordError } = await db
+    .rpc('record_asaas_billing_event', {
+      p_event_id: validated.eventId,
+      p_event_type: validated.eventType,
+      p_payload: persistedPayload(body, validated.eventType),
     })
-    .eq('id', subscription.id)
-}
+    .maybeSingle();
+  const recorded = recordedData as RecordedBillingEvent | null;
 
-async function handlePaymentOverdue(db: AdminClient, payment: AsaasWebhookPayment) {
-  const subscription = await loadSubscriptionByExternalRef(db, payment.externalReference)
-  if (!subscription) return
+  if (recordError || !recorded) {
+    console.error('[billing webhook] event persistence failed:', recordError);
+    return json(
+      { error: 'Falha temporária ao registrar evento' },
+      { status: 503 }
+    );
+  }
 
-  await db.from('payments').upsert(
-    {
-      gateway_payment_id: payment.id,
-      subscription_id: subscription.id,
-      account_id: subscription.account_id,
-      amount_cents: Math.round((payment.value ?? 0) * 100),
-      currency: 'BRL',
-      status: 'overdue',
-      billing_type: payment.billingType ? payment.billingType.toLowerCase() : null,
-      due_date: payment.dueDate ?? null,
-      raw_payload: payment,
-    },
-    { onConflict: 'gateway_payment_id' },
-  )
+  if (!recorded.should_process) {
+    return json({
+      received: true,
+      processed: recorded.outcome_status === 'processed',
+      duplicate: true,
+    });
+  }
 
-  await db.from('subscriptions').update({ status: 'past_due' }).eq('id', subscription.id)
-}
+  const { data: resultData, error: processError } = await db
+    .rpc('process_asaas_billing_event', {
+      p_event_id: validated.eventId,
+    })
+    .maybeSingle();
+  const result = resultData as ProcessedBillingEvent | null;
 
-async function handleSubscriptionDeleted(db: AdminClient, subscription: AsaasWebhookSubscription) {
-  const row = await loadSubscriptionByExternalRef(db, subscription.externalReference)
-  if (!row) return
-  await db
-    .from('subscriptions')
-    .update({ status: 'canceled', canceled_at: new Date().toISOString() })
-    .eq('id', row.id)
+  if (processError || !result || result.outcome_status === 'failed') {
+    console.error(
+      '[billing webhook] event processing failed:',
+      processError ?? result?.error_message
+    );
+    return json(
+      { error: 'Falha temporária ao processar evento' },
+      { status: 503 }
+    );
+  }
+
+  return json({
+    received: true,
+    processed: result.outcome_status === 'processed',
+    ignored: result.outcome_status === 'ignored',
+  });
 }

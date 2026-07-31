@@ -1,5 +1,5 @@
-import type { AccountRole } from "@/lib/auth/roles";
-import type { InteractiveMessagePayload } from "@/lib/whatsapp/interactive";
+import type { AccountRole } from '@/lib/auth/roles';
+import type { InteractiveMessagePayload } from '@/lib/whatsapp/interactive';
 
 export type {
   InteractiveMessagePayload,
@@ -8,7 +8,7 @@ export type {
   InteractiveButton,
   InteractiveListRow,
   InteractiveListSection,
-} from "@/lib/whatsapp/interactive";
+} from '@/lib/whatsapp/interactive';
 
 export interface Profile {
   id: string;
@@ -80,7 +80,7 @@ export interface Account {
  * column only toggles between the two WhatsApp providers) — this is
  * for `messages.provider`, which shares the same DB enum.
  */
-export type WhatsAppProviderType = "meta_cloud_api" | "baileys" | "instagram";
+export type WhatsAppProviderType = 'meta_cloud_api' | 'baileys' | 'instagram';
 
 /**
  * Hydrated member row for the Settings → Members tab. Combines
@@ -108,7 +108,7 @@ export interface AccountInvitation {
   id: string;
   account_id: string;
   /** Roles offered via invite — owner is never offered. */
-  role: Exclude<AccountRole, "owner">;
+  role: Exclude<AccountRole, 'owner'>;
   created_by_user_id: string | null;
   label: string | null;
   created_at: string;
@@ -258,7 +258,8 @@ export type ContentType =
   | 'template'
   /** Customer tapped a reply button or list row on a message we sent. */
   | 'interactive';
-export type MessageStatus = 'sending' | 'sent' | 'delivered' | 'read' | 'failed';
+export type MessageStatus =
+  'sending' | 'sent' | 'delivered' | 'read' | 'failed';
 
 export interface Message {
   id: string;
@@ -354,7 +355,8 @@ export interface InstagramConfig {
   connected_at?: string;
 }
 
-export type BaileysConnectionStatus = "disconnected" | "qr_pending" | "connected";
+export type BaileysConnectionStatus =
+  'disconnected' | 'qr_pending' | 'connected';
 
 /**
  * One row per account — tracks the lifecycle of that account's
@@ -464,8 +466,10 @@ export interface Deal {
   assignee?: Profile;
 }
 
-export type BroadcastStatus = 'draft' | 'scheduled' | 'sending' | 'sent' | 'failed';
-export type RecipientStatus = 'pending' | 'sent' | 'delivered' | 'read' | 'replied' | 'failed';
+export type BroadcastStatus =
+  'draft' | 'scheduled' | 'sending' | 'sent' | 'failed';
+export type RecipientStatus =
+  'pending' | 'sent' | 'delivered' | 'read' | 'replied' | 'failed' | 'skipped';
 
 export interface Broadcast {
   id: string;
@@ -483,6 +487,10 @@ export interface Broadcast {
   read_count: number;
   replied_count: number;
   failed_count: number;
+  /** Consent-suppressed recipients; never counted as provider failures. */
+  skipped_count: number;
+  /** Invalid phones rejected before a recipient row could be created. */
+  rejected_recipients?: number;
   created_at: string;
 }
 
@@ -531,7 +539,7 @@ export type AutomationTriggerType =
    *  subscribed 24h after creation — carries a freshly generated 20%
    *  coupon in context.vars. */
   | 'billing_nudge_24h'
-  /** Same cron, 48h mark — offers a 24h free trial instead. */
+  /** Same cron, 48h mark — offers a 7-day free trial instead. */
   | 'billing_nudge_48h'
   /** Dispatched by /api/orders/webhook on PAYMENT_CONFIRMED — lets a
    *  tenant build a post-purchase automation (thank-you message, tag
@@ -659,10 +667,7 @@ export interface WaitStepConfig {
 }
 
 export type ConditionSubject =
-  | 'contact_field'
-  | 'tag_presence'
-  | 'message_content'
-  | 'time_of_day';
+  'contact_field' | 'tag_presence' | 'message_content' | 'time_of_day';
 
 export interface ConditionStepConfig {
   subject: ConditionSubject;
@@ -803,7 +808,7 @@ export interface Order {
   id: string;
   account_id: string;
   cart_id: string | null;
-  contact_id: string;
+  contact_id: string | null;
   deal_id: string | null;
   status: OrderStatus;
   subtotal_cents: number;

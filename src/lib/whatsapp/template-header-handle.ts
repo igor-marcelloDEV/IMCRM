@@ -33,8 +33,8 @@ export async function ensureImageHeaderHandle(
     )
   }
 
-  // Fetch the sample image bytes (works for our uploaded chat-media URL
-  // and for a manually-pasted public link).
+  // Fetch the sample image bytes. App-owned private media is converted to
+  // a short-lived signed URL by the submit route before reaching here.
   let res: Response
   try {
     res = await fetch(payload.header_media_url)
