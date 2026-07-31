@@ -290,9 +290,19 @@ async function handleInboundMessage(
     contentType = 'location';
     const loc = effective.liveLocationMessage;
     contentText = `${loc.degreesLatitude},${loc.degreesLongitude}`;
+  } else if (effective.protocolMessage) {
+    // Message edits, deletions ("apagar para todos"), disappearing-
+    // messages toggles, and history-sync/app-state protocol frames all
+    // arrive as a `protocolMessage` — not user-authored content. These
+    // fire far more often than any other single unhandled type (every
+    // delete/edit produces one), and were previously the single biggest
+    // source of the generic "unsupported" placeholder flooding threads.
+    // There's nothing meaningful to show the agent, so skip entirely
+    // instead of posting a message row.
+    return;
   } else {
-    // Sticker, poll, reaction, shared contact, deleted/edited-message
-    // protocol frames, etc. — not modelled as first-class content.
+    // Sticker, poll, reaction, shared contact, button/list taps, catalog
+    // shares, group invites, etc. — not modelled as first-class content.
     // Bracketed, type-specific text so the thread isn't silently
     // missing a turn AND downstream consumers (automations
     // interpolating {{message.text}} into a deal title, an AI
@@ -301,8 +311,22 @@ async function handleInboundMessage(
     // see interpolate() in src/lib/automations/engine.ts.
     if (effective.stickerMessage) contentText = '[Figurinha]';
     else if (effective.pollCreationMessage || effective.pollCreationMessageV2 || effective.pollCreationMessageV3) contentText = '[Enquete]';
+    else if (effective.pollUpdateMessage) contentText = '[Voto em enquete]';
     else if (effective.reactionMessage) contentText = `[Reação: ${effective.reactionMessage.text || '👍'}]`;
     else if (effective.contactMessage || effective.contactsArrayMessage) contentText = '[Contato compartilhado]';
+    else if (effective.buttonsResponseMessage) {
+      contentText = effective.buttonsResponseMessage.selectedDisplayText
+        || effective.buttonsResponseMessage.selectedButtonId
+        || '[Resposta de botão]';
+    } else if (effective.listResponseMessage) {
+      contentText = effective.listResponseMessage.title
+        || effective.listResponseMessage.singleSelectReply?.selectedRowId
+        || '[Resposta de lista]';
+    } else if (effective.templateButtonReplyMessage) {
+      contentText = effective.templateButtonReplyMessage.selectedDisplayText || '[Resposta de botão]';
+    } else if (effective.interactiveResponseMessage) contentText = '[Resposta interativa]';
+    else if (effective.productMessage || effective.orderMessage) contentText = '[Produto do catálogo]';
+    else if (effective.groupInviteMessage) contentText = '[Convite de grupo]';
     else contentText = '[Tipo de mensagem não suportado no WhatsApp Web]';
   }
 

@@ -56,6 +56,19 @@ guarantees eventual completion.
   closed if unset" discipline).
 - `INBOUND_WEBHOOK_CRON_BATCH_SIZE` (optional, default 20, max 100).
 - `BROADCAST_CRON_BATCH_SIZE` (optional, default 20, max 100).
+- `INBOUND_DISPATCH_DEBOUNCE_MS` (optional, default 8000, `0` disables)
+  — not a cron var, but lives here because it shapes the same inbound
+  pipeline: `ingestInboundMessage` (`src/lib/whatsapp/inbound.ts`)
+  waits this long after a customer message before running
+  `keyword_match`/`new_message_received` automations and the AI reply,
+  then checks whether a newer customer message has since arrived. If
+  one has, this call stands down (the newer message's own dispatch —
+  or its own wait — will handle it), so only the *last* message in a
+  burst triggers a reply, built from all the lines sent since (see
+  `collectBurstText`). Trigger-defining events (`message.received`
+  webhook delivery, `new_contact_created`, `first_inbound_message`,
+  interactive replies) are never delayed — only the automation/AI
+  dispatch is.
 - `PLATFORM_ADMIN_USER_IDS` (optional) — comma-separated `auth.users`
   ids allowed into the cross-tenant `/admin` operator panel. The base
   check (`PLATFORM_OPERATOR_ACCOUNT_ID`'s owner) always applies; when

@@ -57,6 +57,59 @@ export interface IngestResult {
   isFirstInboundMessage: boolean;
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * How long to wait, after a text message arrives, before reacting to it
+ * with content-triggered automations / the AI auto-reply — see the
+ * debounce block in `ingestInboundMessage`. 0 disables debouncing
+ * entirely (immediate dispatch, the old behaviour).
+ */
+function inboundDispatchDebounceMs(): number {
+  const raw = Number(process.env.INBOUND_DISPATCH_DEBOUNCE_MS);
+  return Number.isFinite(raw) && raw >= 0 ? raw : 8000;
+}
+
+/**
+ * Joins every consecutive customer message since the last time we (bot
+ * or agent) said anything — the whole run of lines a debounced
+ * dispatch should treat as one message. WhatsApp users routinely type
+ * "oi", "queria saber", "sobre o pedido X" as three separate sends
+ * instead of one; keyword-matching only the last of those would miss
+ * "pedido X" if the keyword landed on an earlier line.
+ */
+async function collectBurstText(
+  db: SupabaseClient,
+  conversationId: string,
+  fallback: string,
+): Promise<string> {
+  const { data: lastOutbound } = await db
+    .from('messages')
+    .select('created_at')
+    .eq('conversation_id', conversationId)
+    .neq('sender_type', 'customer')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  let query = db
+    .from('messages')
+    .select('content_text')
+    .eq('conversation_id', conversationId)
+    .eq('sender_type', 'customer')
+    .order('created_at', { ascending: true });
+  if (lastOutbound?.created_at) {
+    query = query.gt('created_at', lastOutbound.created_at);
+  }
+  const { data: rows } = await query;
+  const texts = ((rows ?? []) as { content_text: string | null }[])
+    .map((r) => r.content_text)
+    .filter((t): t is string => !!t && t.trim().length > 0);
+  return texts.length > 0 ? texts.join('\n') : fallback;
+}
+
 /**
  * Resolve a provider-native message key to our internal `messages.id`,
  * scoped to one conversation. Checks the legacy `message_id` column
@@ -400,34 +453,23 @@ export async function ingestInboundMessage(
   }
 
   const inboundText = message.contentText ?? '';
-  const automationTriggers: (
+
+  // Relationship-level triggers fire once per genuinely new state (a
+  // new contact, the very first message, a menu tap) — not per line of
+  // text — so a burst of messages doesn't affect them. Dispatched
+  // immediately, same as before.
+  const immediateTriggers: (
     | 'new_contact_created'
     | 'first_inbound_message'
-    | 'new_message_received'
-    | 'keyword_match'
     | 'interactive_reply'
   )[] = [];
-  if (!flowConsumed) {
-    automationTriggers.push('new_message_received', 'keyword_match');
-    if (message.interactiveReplyId) {
-      automationTriggers.push('interactive_reply');
-    }
+  if (contactOutcome.wasCreated) immediateTriggers.push('new_contact_created');
+  if (isFirstInboundMessage) immediateTriggers.push('first_inbound_message');
+  if (!flowConsumed && message.interactiveReplyId) {
+    immediateTriggers.push('interactive_reply');
   }
-  if (contactOutcome.wasCreated) automationTriggers.unshift('new_contact_created');
-  if (isFirstInboundMessage) automationTriggers.unshift('first_inbound_message');
-  // Awaited (as Promise.all, so multiple trigger types still run
-  // concurrently) rather than fire-and-forget. This function is always
-  // called from behind an `after()` (or equivalent deferred-work)
-  // boundary by every caller — the HTTP response is already sent by
-  // the time this runs — so there's no ack to protect by detaching
-  // these promises, only a false sense of safety: an un-awaited
-  // promise here has nothing keeping it alive once `ingestInboundMessage`
-  // itself returns, and the serverless function can be frozen the
-  // instant that happens, silently dropping the automation run
-  // mid-flight (see the comment on worker-webhook/route.ts's
-  // `after()` call for the full incident writeup).
-  const automationResults = await Promise.all(
-    automationTriggers.map((triggerType) =>
+  await Promise.all(
+    immediateTriggers.map((triggerType) =>
       runAutomationsForTrigger({
         accountId,
         triggerType,
@@ -436,6 +478,78 @@ export async function ingestInboundMessage(
           message_text: inboundText,
           conversation_id: conversation.id,
           interactive_reply_id: message.interactiveReplyId ?? undefined,
+        },
+      }).catch((err) => {
+        console.error('[automations] dispatch failed:', err);
+      }),
+    ),
+  );
+
+  await dispatchWebhookEvent(db, accountId, 'message.received', {
+    conversation_id: conversation.id,
+    contact_id: contact.id,
+    whatsapp_message_id: message.providerMessageKey,
+    content_type: message.contentType,
+    text: message.contentText,
+  });
+
+  // Content-reactive dispatch — new_message_received/keyword_match
+  // automations and the AI auto-reply — is debounced. A customer who
+  // sends several short WhatsApp messages in a row ("bom dia", "queria
+  // saber", "sobre o pedido X"...) used to trigger a separate
+  // automation/AI response PER LINE, landing as several jumbled
+  // replies instead of one. Waiting a short quiet period after the
+  // LAST message, then bowing out if a newer message has since
+  // superseded this one, means only the final message in a burst ever
+  // reaches this point — and by then the whole burst is already in the
+  // conversation history (buildConversationContext / collectBurstText
+  // read fresh at dispatch time; nothing needs buffering here). Runs
+  // inside the caller's already-established after() background window
+  // (see the module doc comment), so the wait doesn't delay the
+  // webhook's ack to the provider.
+  if (flowConsumed || message.interactiveReplyId) {
+    return {
+      conversationId: conversation.id,
+      contactId: contact.id,
+      contactCreated: contactOutcome.wasCreated,
+      isFirstInboundMessage,
+    };
+  }
+
+  const debounceMs = inboundDispatchDebounceMs();
+  if (debounceMs > 0) {
+    await sleep(debounceMs);
+    const { data: latest } = await db
+      .from('messages')
+      .select('provider_message_key')
+      .eq('conversation_id', conversation.id)
+      .eq('sender_type', 'customer')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (latest && latest.provider_message_key !== message.providerMessageKey) {
+      // A newer message arrived during the wait — its own
+      // ingestInboundMessage call owns the dispatch now.
+      return {
+        conversationId: conversation.id,
+        contactId: contact.id,
+        contactCreated: contactOutcome.wasCreated,
+        isFirstInboundMessage,
+      };
+    }
+  }
+
+  const burstText = await collectBurstText(db, conversation.id, inboundText);
+
+  const automationResults = await Promise.all(
+    (['new_message_received', 'keyword_match'] as const).map((triggerType) =>
+      runAutomationsForTrigger({
+        accountId,
+        triggerType,
+        contactId: contact.id,
+        context: {
+          message_text: burstText,
+          conversation_id: conversation.id,
         },
       })
         .then((sentMessage) => ({ triggerType, sentMessage }))
@@ -446,18 +560,13 @@ export async function ingestInboundMessage(
     ),
   );
 
-  // Did a per-message auto-responder (as opposed to a relationship
-  // trigger like first_inbound_message/new_contact_created) actually
-  // send something for THIS inbound? Used to decide whether the AI
-  // should cover the gap below — see the comment on
-  // dispatchInboundToAiReply's automationHandledMessage param.
-  const automationHandledMessage = automationResults.some(
-    (r) =>
-      r.sentMessage &&
-      (r.triggerType === 'new_message_received' || r.triggerType === 'keyword_match'),
-  );
+  // Did a per-message auto-responder actually send something for this
+  // burst? Used to decide whether the AI should cover the gap below —
+  // see the comment on dispatchInboundToAiReply's automationHandledMessage
+  // param.
+  const automationHandledMessage = automationResults.some((r) => r.sentMessage);
 
-  if (!flowConsumed && !message.interactiveReplyId && inboundText.trim()) {
+  if (burstText.trim()) {
     await dispatchInboundToAiReply({
       accountId,
       conversationId: conversation.id,
@@ -467,14 +576,6 @@ export async function ingestInboundMessage(
       automationHandledMessage,
     });
   }
-
-  await dispatchWebhookEvent(db, accountId, 'message.received', {
-    conversation_id: conversation.id,
-    contact_id: contact.id,
-    whatsapp_message_id: message.providerMessageKey,
-    content_type: message.contentType,
-    text: message.contentText,
-  });
 
   return {
     conversationId: conversation.id,
