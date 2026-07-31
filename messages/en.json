@@ -507,6 +507,23 @@
       "noDeal": "No deal",
       "resourcesWarning": "Some options could not be loaded. You can still save the available fields."
     },
+    "progressLog": {
+      "sectionTitle": "Progress log",
+      "empty": "No updates logged yet.",
+      "unknownActor": "Someone",
+      "viewLink": "View link",
+      "viewAttachment": "View attachment",
+      "placeholder": "Log a progress update...",
+      "linkPlaceholder": "Link (optional)",
+      "removeAttachment": "Remove attachment",
+      "uploading": "Uploading...",
+      "attachFile": "Attach image or PDF",
+      "submit": "Log update",
+      "toastEmpty": "Write an update.",
+      "toastFailed": "Couldn't log the update.",
+      "toastFileTooLarge": "File too large ({size} MB)",
+      "toastUploadFailed": "Attachment upload failed."
+    },
     "actions": {
       "refresh": "Refresh",
       "retry": "Try again",

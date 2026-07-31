@@ -507,6 +507,23 @@
       "noDeal": "Sem negócio",
       "resourcesWarning": "Não foi possível carregar todas as opções. Você ainda pode salvar os campos disponíveis."
     },
+    "progressLog": {
+      "sectionTitle": "Andamentos",
+      "empty": "Nenhum andamento registrado ainda.",
+      "unknownActor": "Alguém",
+      "viewLink": "Ver link",
+      "viewAttachment": "Ver anexo",
+      "placeholder": "Registrar um andamento...",
+      "linkPlaceholder": "Link (opcional)",
+      "removeAttachment": "Remover anexo",
+      "uploading": "Enviando...",
+      "attachFile": "Anexar imagem ou PDF",
+      "submit": "Registrar",
+      "toastEmpty": "Escreva uma atualização.",
+      "toastFailed": "Não foi possível registrar o andamento.",
+      "toastFileTooLarge": "Arquivo muito grande ({size} MB)",
+      "toastUploadFailed": "Falha no envio do anexo."
+    },
     "actions": {
       "refresh": "Atualizar",
       "retry": "Tentar novamente",

@@ -27,6 +27,7 @@ import type {
   TaskPriority,
   TaskResources,
 } from '@/lib/tasks/types';
+import { TaskProgressLog } from '@/components/tasks/task-progress-log';
 
 const SELECT_CLASS =
   'h-9 w-full rounded-lg border border-input bg-background px-2.5 text-sm text-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50';
@@ -306,6 +307,13 @@ export function TaskEditorDialog({
             </p>
           ) : null}
         </form>
+
+        {task ? (
+          <div className="space-y-1.5 border-t border-border pt-4">
+            <Label>{t('progressLog.sectionTitle')}</Label>
+            <TaskProgressLog taskId={task.id} />
+          </div>
+        ) : null}
 
         <DialogFooter>
           <Button type="button" variant="outline" onClick={onClose}>
