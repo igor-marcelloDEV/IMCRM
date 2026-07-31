@@ -125,10 +125,17 @@ an earlier one (046). The fix is always the same: prefer the
   path which provider to use.
 - **Catalog → cart → order**: `catalog_items` (what a tenant sells) →
   `cart_items` (WhatsApp-side, pre-checkout) → `orders`/`order_items`
-  (post-checkout, immutable once paid) → `orders.invoice_id`/
-  `invoice_status` (Asaas NFS-e, issued async after payment — see the
-  "Ver NF" button on a deal's item list, which calls Asaas live rather
-  than trusting a cached status).
+  (immutable once paid) → `orders.invoice_id`/`invoice_status` (Asaas
+  NFS-e, issued async after payment — the "Ver NF" button, shared as
+  `InvoiceCard`, calls Asaas live rather than trusting a cached
+  status). `orders.source` distinguishes a WhatsApp-checkout order from
+  a comanda opened directly in `/orders` ("Nova comanda"); either way,
+  `order_payments` (migration 064) is where a payment recorded by hand
+  — cash, card, a PIX outside Asaas — lands, separate from the
+  automatic Asaas-webhook flow. `accounts.logo_url` (+ the existing
+  `accounts.name`) is the whitelabel identity shown on documents IMCRM
+  itself generates (the receipt today) — never on the official NFS-e
+  PDF, whose layout the municipality/Asaas controls.
 - **Tasks & activities** (migration `063`) — see below.
 - **Automations** (`automations`/`automation_steps`) are trigger-
   agnostic: the same step types (`add_tag`, `create_deal`, …) fire
