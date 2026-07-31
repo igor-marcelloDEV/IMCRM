@@ -12,7 +12,7 @@ function context(
     userId: "owner-user",
     accountId: "operator-account",
     role: "owner",
-    account: { id: "operator-account", name: "Operadora" },
+    account: { id: "operator-account", name: "Operadora", logo_url: null },
     ...overrides,
   };
 }

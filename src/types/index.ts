@@ -55,6 +55,10 @@ export interface Profile {
 export interface Account {
   id: string;
   name: string;
+  /** Whitelabel logo shown on documents IMCRM generates itself
+   *  (receipts today; future reports) — never on the official NFS-e
+   *  PDF, whose layout the municipality/Asaas controls (migration 064). */
+  logo_url: string | null;
   /** auth.users.id of the immutable owner. */
   owner_user_id: string;
   /**
@@ -804,6 +808,8 @@ export interface CatalogItem {
 
 export type OrderStatus = 'pending_payment' | 'paid' | 'canceled';
 
+export type OrderSource = 'whatsapp_checkout' | 'manual';
+
 export interface Order {
   id: string;
   account_id: string;
@@ -818,6 +824,10 @@ export interface Order {
   gateway_payment_id: string | null;
   invoice_id: string | null;
   invoice_status: string | null;
+  /** 'manual' = opened directly as a comanda; 'whatsapp_checkout' = created
+   *  by the checkout Flow node (migration 064). */
+  source: OrderSource;
+  notes: string | null;
   created_at: string;
   updated_at: string;
   paid_at: string | null;
@@ -831,5 +841,21 @@ export interface OrderItem {
   quantity: number;
   unit_price_cents: number;
   total_cents: number;
+  created_at: string;
+}
+
+export type OrderPaymentMethod = 'cash' | 'card' | 'pix_manual' | 'pix_asaas' | 'other';
+
+/** A payment recorded by hand against an order (migration 064) — cash,
+ *  card, a PIX paid outside Asaas, or a split across methods. Separate
+ *  from the automatic Asaas flow, which marks `orders.status` directly. */
+export interface OrderPayment {
+  id: string;
+  account_id: string;
+  order_id: string;
+  method: OrderPaymentMethod;
+  amount_cents: number;
+  notes: string | null;
+  recorded_by: string | null;
   created_at: string;
 }

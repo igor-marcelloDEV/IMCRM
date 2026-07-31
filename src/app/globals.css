@@ -228,3 +228,23 @@ html[data-theme="rose"] {
     @apply font-sans;
   }
 }
+
+/* Print just one element (e.g. a receipt inside a Dialog) regardless
+ * of where it sits in the DOM — the visibility trick works reliably
+ * across browsers where `display:none` on ancestors does not. Any
+ * future printable view (receipts today, reports later) opts in with
+ * the same class. */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  .print-only-area,
+  .print-only-area * {
+    visibility: visible;
+  }
+  .print-only-area {
+    position: fixed;
+    inset: 0;
+    padding: 24px;
+  }
+}

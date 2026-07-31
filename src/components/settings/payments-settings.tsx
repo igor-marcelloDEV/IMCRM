@@ -1,15 +1,18 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 import {
   AlertTriangle,
+  Building2,
   CheckCircle2,
   Copy,
+  ImagePlus,
   KeyRound,
   Loader2,
   Search,
+  Trash2,
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -23,6 +26,9 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { SettingsPanelHead } from './settings-panel-head';
+import { uploadAccountMedia, MEDIA_MAX_BYTES_BY_KIND } from '@/lib/storage/upload-media';
+
+const BUSINESS_ASSETS_BUCKET = 'flow-media';
 
 interface PaymentsConfig {
   connected: boolean;
@@ -43,6 +49,67 @@ export function PaymentsSettings() {
   const t = useTranslations('Settings.payments');
   const [config, setConfig] = useState<PaymentsConfig | null>(null);
   const [loading, setLoading] = useState(true);
+
+  // Whitelabel identity — shown on documents IMCRM itself generates
+  // (receipts today; future reports), never on the official NFS-e PDF
+  // (that layout is the municipality's, via Asaas).
+  const [businessName, setBusinessName] = useState('');
+  const [logoUrl, setLogoUrl] = useState<string | null>(null);
+  const [savingBranding, setSavingBranding] = useState(false);
+  const [uploadingLogo, setUploadingLogo] = useState(false);
+  const logoInputRef = useRef<HTMLInputElement>(null);
+
+  const loadBranding = useCallback(async () => {
+    const res = await fetch('/api/account');
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && data.account) {
+      setBusinessName(data.account.name ?? '');
+      setLogoUrl(data.account.logo_url ?? null);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadBranding();
+  }, [loadBranding]);
+
+  const saveBranding = useCallback(
+    async (patch: { name?: string; logo_url?: string | null }) => {
+      setSavingBranding(true);
+      try {
+        const res = await fetch('/api/account', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(patch),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          toast.error(data.error ?? t('brandingSaveFailed'));
+          return;
+        }
+        toast.success(t('brandingSaved'));
+      } finally {
+        setSavingBranding(false);
+      }
+    },
+    [t],
+  );
+
+  async function handleLogoSelected(file: File) {
+    if (file.size > MEDIA_MAX_BYTES_BY_KIND.image) {
+      toast.error(t('logoTooLarge'));
+      return;
+    }
+    setUploadingLogo(true);
+    try {
+      const { url } = await uploadAccountMedia(BUSINESS_ASSETS_BUCKET, file);
+      setLogoUrl(url);
+      await saveBranding({ logo_url: url });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t('logoUploadFailed'));
+    } finally {
+      setUploadingLogo(false);
+    }
+  }
   const [apiKey, setApiKey] = useState('');
   const [env, setEnv] = useState<'sandbox' | 'production'>('sandbox');
   const [saving, setSaving] = useState(false);
@@ -204,6 +271,81 @@ export function PaymentsSettings() {
     <div>
       <SettingsPanelHead title={t('title')} description={t('description')} />
 
+      <div className="border-border bg-card mb-4 rounded-lg border p-4">
+        <div className="mb-1 flex items-center gap-2">
+          <Building2 className="h-4 w-4 text-muted-foreground" />
+          <p className="text-foreground text-sm font-medium">{t('brandingTitle')}</p>
+        </div>
+        <p className="text-muted-foreground mb-4 text-xs">{t('brandingDesc')}</p>
+
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
+          <div className="flex flex-col items-center gap-2">
+            <button
+              type="button"
+              onClick={() => logoInputRef.current?.click()}
+              disabled={uploadingLogo}
+              className="border-border bg-muted flex h-20 w-20 items-center justify-center overflow-hidden rounded-lg border border-dashed disabled:opacity-60"
+            >
+              {uploadingLogo ? (
+                <Loader2 className="text-muted-foreground h-5 w-5 animate-spin" />
+              ) : logoUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={logoUrl} alt={businessName} className="h-full w-full object-contain" />
+              ) : (
+                <ImagePlus className="text-muted-foreground h-5 w-5" />
+              )}
+            </button>
+            <input
+              ref={logoInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) void handleLogoSelected(file);
+                e.target.value = '';
+              }}
+            />
+            {logoUrl && (
+              <button
+                type="button"
+                onClick={() => {
+                  setLogoUrl(null);
+                  void saveBranding({ logo_url: null });
+                }}
+                className="text-muted-foreground hover:text-destructive flex items-center gap-1 text-[11px]"
+              >
+                <Trash2 className="h-3 w-3" />
+                {t('removeLogo')}
+              </button>
+            )}
+          </div>
+
+          <div className="flex-1">
+            <label className="text-muted-foreground mb-1 block text-xs">
+              {t('businessNameLabel')}
+            </label>
+            <div className="flex gap-2">
+              <Input
+                value={businessName}
+                onChange={(e) => setBusinessName(e.target.value)}
+                placeholder={t('businessNamePlaceholder')}
+                className="bg-muted"
+              />
+              <Button
+                variant="outline"
+                disabled={savingBranding || !businessName.trim()}
+                onClick={() => saveBranding({ name: businessName.trim() })}
+              >
+                {savingBranding && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
+                {t('save')}
+              </Button>
+            </div>
+            <p className="text-muted-foreground mt-2 text-[11px]">{t('brandingHint')}</p>
+          </div>
+        </div>
+      </div>
+
       <div className="border-border bg-card rounded-lg border p-4">
         <div className="mb-4 flex items-center gap-2">
           {config?.connected ? (
@@ -329,6 +471,7 @@ export function PaymentsSettings() {
           <p className="text-foreground mb-1 text-sm font-medium">
             {t('nfeTitle')}
           </p>
+          <p className="text-muted-foreground mb-3 text-xs">{t('nfeIntro')}</p>
 
           <div className="mb-3 flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
             <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />

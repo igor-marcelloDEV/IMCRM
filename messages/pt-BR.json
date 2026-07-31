@@ -2014,25 +2014,105 @@
   },
   "Orders": {
     "title": "Pedidos",
-    "description": "Pedidos feitos pelo nó de Fechar pedido — itens do carrinho, status do pagamento e o Negócio vinculado.",
+    "description": "Pedidos feitos pelo nó de Fechar pedido, mais as comandas que você abre direto por aqui.",
     "paidCount": "Pedidos pagos",
     "paidTotal": "Total pago",
+    "openCount": "Comandas abertas",
     "listTitle": "Todos os pedidos",
     "listDescription": "Os últimos 100 pedidos desta conta, mais recentes primeiro.",
-    "empty": "Nenhum pedido ainda. Eles aparecem aqui quando um cliente termina um Fluxo de checkout.",
+    "empty": "Nenhum pedido ainda. Abra uma comanda, ou espere um cliente terminar um Fluxo de checkout.",
     "colContact": "Cliente",
     "colItems": "Itens",
     "colTotal": "Total",
     "colStatus": "Status",
     "colDeal": "Negócio",
+    "colSource": "Origem",
     "colDate": "Data",
     "unknownContact": "Contato desconhecido",
     "itemCount": "{count} {count, plural, =1 {item} other {itens}}",
     "viewDeal": "Ver no Funil",
+    "sourceManual": "Comanda",
+    "sourceWhatsapp": "Checkout do WhatsApp",
     "status": {
       "pending_payment": "Aguardando pagamento",
       "paid": "Pago",
       "canceled": "Cancelado"
+    },
+    "newOrder": {
+      "button": "Nova comanda",
+      "title": "Nova comanda",
+      "desc": "Escolha um cliente pra abrir uma comanda.",
+      "searchPlaceholder": "Buscar por nome ou telefone…",
+      "noResults": "Nenhum contato corresponde à busca.",
+      "unnamed": "Contato sem nome",
+      "toastFailed": "Não foi possível abrir a comanda"
+    },
+    "detail": {
+      "titleComanda": "Comanda",
+      "titleOrder": "Pedido",
+      "toastFailed": "Algo deu errado",
+      "toastCanceled": "Pedido cancelado",
+      "sectionCustomer": "Cliente",
+      "unknownContact": "Contato desconhecido",
+      "sectionItems": "Itens",
+      "total": "Total",
+      "sectionPayments": "Pagamentos",
+      "sectionNotes": "Notas",
+      "notesPlaceholder": "Notas internas sobre esta venda…",
+      "receipt": "Comprovante",
+      "cancelOrder": "Cancelar",
+      "items": {
+        "addPlaceholder": "Adicionar um item…",
+        "emptyCatalog": "Nenhum item no catálogo ainda — adicione em Configurações"
+      },
+      "status": {
+        "pending_payment": "Aguardando pagamento",
+        "paid": "Pago",
+        "canceled": "Cancelado"
+      },
+      "payments": {
+        "method": {
+          "cash": "Dinheiro",
+          "card": "Cartão",
+          "pix_manual": "PIX (manual)",
+          "pix_asaas": "PIX (Asaas)",
+          "other": "Outro"
+        },
+        "balance": "Saldo devedor",
+        "record": "Registrar pagamento",
+        "fullyPaid": "Totalmente pago.",
+        "canceledNote": "Este pedido foi cancelado.",
+        "toastInvalidAmount": "Digite um valor válido.",
+        "toastFailed": "Não foi possível registrar o pagamento",
+        "toastFullyPaid": "Pagamento registrado — pedido totalmente pago.",
+        "toastRecorded": "Pagamento registrado."
+      }
+    },
+    "receipt": {
+      "title": "Comprovante",
+      "total": "Total",
+      "date": "Data",
+      "copy": "Copiar texto",
+      "print": "Imprimir",
+      "shareWhatsapp": "Compartilhar no WhatsApp",
+      "toastCopied": "Comprovante copiado.",
+      "toastCopyFailed": "Não foi possível copiar."
+    },
+    "invoice": {
+      "title": "Nota fiscal (NFS-e)",
+      "view": "Ver",
+      "downloadPdf": "Baixar PDF",
+      "toastFailed": "Não foi possível consultar a nota fiscal",
+      "notReadyYet": "Ainda não está pronta — status: {status}",
+      "status": {
+        "SCHEDULED": "Agendada",
+        "SYNCHRONIZED": "Emitida",
+        "AUTHORIZED": "Autorizada",
+        "PROCESSING_CANCELLATION": "Cancelando",
+        "CANCELLED": "Cancelada",
+        "CANCELLATION_DENIED": "Cancelamento negado",
+        "ERROR": "Erro na emissão"
+      }
     }
   },
   "Settings": {
@@ -2325,6 +2405,16 @@
     "payments": {
       "title": "Pagamentos",
       "description": "Conecte sua PRÓPRIA conta Asaas pra que o nó de Fechar pedido consiga cobrar SEUS clientes via PIX. Separado da sua assinatura do IMCRM.",
+      "brandingTitle": "Identidade da empresa",
+      "brandingDesc": "Seu nome e logomarca aparecem nos documentos que o IMCRM gera pra você — comprovantes hoje, relatórios no futuro. O PDF oficial da NFS-e em si segue o layout da prefeitura (via Asaas), não este.",
+      "businessNameLabel": "Nome da empresa",
+      "businessNamePlaceholder": "ex.: Salão da Ana",
+      "brandingHint": "Aparece nos comprovantes compartilhados com clientes e em futuras exportações de relatório.",
+      "brandingSaved": "Salvo.",
+      "brandingSaveFailed": "Não foi possível salvar.",
+      "logoTooLarge": "Imagem muito grande (máx. 5 MB).",
+      "logoUploadFailed": "Não foi possível enviar a logomarca.",
+      "removeLogo": "Remover",
       "connected": "Conectado",
       "notConnected": "Não conectado",
       "intro": "Cole sua API key da Asaas (Integrações → API Key no painel da Asaas). Fica criptografada e nunca é mostrada de novo depois de salvar.",
@@ -2346,6 +2436,7 @@
       "webhookTokenCopied": "Token copiado",
       "copyFailed": "Não foi possível copiar",
       "nfeTitle": "Nota fiscal automática (NFS-e)",
+      "nfeIntro": "Configure como os pedidos pagos pelo checkout do Fluxo emitem a nota fiscal — escolha o serviço municipal que você usa pra cobrar, e depois ligue a emissão automática.",
       "nfeWarning": "Exige o cadastro fiscal/municipal JÁ concluído no seu próprio painel da Asaas (Integrações → Informações Fiscais) — o IMCRM não faz essa parte. A busca abaixo só funciona depois disso.",
       "currentService": "Cobrando atualmente sob: {service}",
       "municipalServiceLabel": "Serviço municipal",

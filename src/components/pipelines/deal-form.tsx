@@ -42,12 +42,11 @@ import {
   Package,
   Minus,
   Plus,
-  FileText,
-  ExternalLink,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslations } from "next-intl";
 import { CatalogPickerDialog } from "./catalog-picker-dialog";
+import { InvoiceCard } from "@/components/orders/invoice-card";
 
 interface DealFormProps {
   open: boolean;
@@ -108,8 +107,6 @@ export function DealForm({
     invoice_id: string | null;
     invoice_status: string | null;
   } | null>(null);
-  const [invoiceLoading, setInvoiceLoading] = useState(false);
-  const [invoicePdfUrl, setInvoicePdfUrl] = useState<string | null>(null);
 
   const [saving, setSaving] = useState(false);
   const [statusAction, setStatusAction] = useState<DealStatus | null>(null);
@@ -177,8 +174,6 @@ export function DealForm({
       setOrderItems([]);
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setOrder(null);
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setInvoicePdfUrl(null);
       return;
     }
     let cancelled = false;
@@ -207,28 +202,6 @@ export function DealForm({
       cancelled = true;
     };
   }, [open, deal, supabase]);
-
-  const checkInvoice = useCallback(async () => {
-    if (!order) return;
-    setInvoiceLoading(true);
-    try {
-      const res = await fetch(`/api/orders/${order.id}/invoice`);
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        toast.error(data.error ?? t("invoice.toastFailed"));
-        return;
-      }
-      setOrder((prev) => (prev ? { ...prev, invoice_status: data.status } : prev));
-      if (data.pdf_url) {
-        setInvoicePdfUrl(data.pdf_url as string);
-        window.open(data.pdf_url as string, "_blank", "noopener,noreferrer");
-      } else {
-        toast.info(t("invoice.notReadyYet", { status: data.status ?? "" }));
-      }
-    } finally {
-      setInvoiceLoading(false);
-    }
-  }, [order, t]);
 
   // Fetch linked conversation for the selected contact (newest open one).
   // Clearing on no-selection is sync with prop state; the populated
@@ -540,44 +513,7 @@ export function DealForm({
               )}
 
               {order?.invoice_id && (
-                <div className="flex items-center justify-between gap-2 rounded-lg border border-border bg-muted/40 p-3">
-                  <div className="flex items-center gap-2 text-xs">
-                    <FileText className="h-3.5 w-3.5 text-muted-foreground" />
-                    <div>
-                      <p className="font-medium text-foreground">{t("invoice.title")}</p>
-                      <p className="text-muted-foreground">
-                        {t(`invoice.status.${order.invoice_status ?? "SCHEDULED"}`, {
-                          defaultValue: order.invoice_status ?? "",
-                        })}
-                      </p>
-                      {invoicePdfUrl && (
-                        <a
-                          href={invoicePdfUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-primary hover:underline"
-                        >
-                          {t("invoice.downloadPdf")}
-                        </a>
-                      )}
-                    </div>
-                  </div>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={invoiceLoading}
-                    onClick={checkInvoice}
-                    className="h-7 shrink-0 gap-1 text-xs"
-                  >
-                    {invoiceLoading ? (
-                      <Loader2 className="h-3 w-3 animate-spin" />
-                    ) : (
-                      <ExternalLink className="h-3 w-3" />
-                    )}
-                    {t("invoice.view")}
-                  </Button>
-                </div>
+                <InvoiceCard orderId={order.id} invoiceStatus={order.invoice_status} />
               )}
 
               <div className="grid grid-cols-[1fr_110px] gap-3">

@@ -2014,25 +2014,105 @@
   },
   "Orders": {
     "title": "Orders",
-    "description": "Orders placed through the checkout Flow node — cart contents, payment status, and the linked Deal.",
+    "description": "Orders placed through the checkout Flow node, plus comandas you open here directly.",
     "paidCount": "Paid orders",
     "paidTotal": "Paid total",
+    "openCount": "Open comandas",
     "listTitle": "All orders",
     "listDescription": "The last 100 orders for this account, newest first.",
-    "empty": "No orders yet. They show up here once a customer finishes a checkout Flow.",
+    "empty": "No orders yet. Open a comanda, or wait for a customer to finish a checkout Flow.",
     "colContact": "Customer",
     "colItems": "Items",
     "colTotal": "Total",
     "colStatus": "Status",
     "colDeal": "Deal",
+    "colSource": "Origin",
     "colDate": "Date",
     "unknownContact": "Unknown contact",
     "itemCount": "{count} {count, plural, =1 {item} other {items}}",
     "viewDeal": "View in Pipeline",
+    "sourceManual": "Comanda",
+    "sourceWhatsapp": "WhatsApp checkout",
     "status": {
       "pending_payment": "Awaiting payment",
       "paid": "Paid",
       "canceled": "Canceled"
+    },
+    "newOrder": {
+      "button": "New comanda",
+      "title": "New comanda",
+      "desc": "Pick a customer to open a tab for.",
+      "searchPlaceholder": "Search by name or phone…",
+      "noResults": "No contacts match your search.",
+      "unnamed": "Unnamed contact",
+      "toastFailed": "Couldn't open the comanda"
+    },
+    "detail": {
+      "titleComanda": "Comanda",
+      "titleOrder": "Order",
+      "toastFailed": "Something went wrong",
+      "toastCanceled": "Order canceled",
+      "sectionCustomer": "Customer",
+      "unknownContact": "Unknown contact",
+      "sectionItems": "Items",
+      "total": "Total",
+      "sectionPayments": "Payments",
+      "sectionNotes": "Notes",
+      "notesPlaceholder": "Internal notes about this sale…",
+      "receipt": "Receipt",
+      "cancelOrder": "Cancel",
+      "items": {
+        "addPlaceholder": "Add an item…",
+        "emptyCatalog": "No catalog items yet — add one in Settings"
+      },
+      "status": {
+        "pending_payment": "Awaiting payment",
+        "paid": "Paid",
+        "canceled": "Canceled"
+      },
+      "payments": {
+        "method": {
+          "cash": "Cash",
+          "card": "Card",
+          "pix_manual": "PIX (manual)",
+          "pix_asaas": "PIX (Asaas)",
+          "other": "Other"
+        },
+        "balance": "Balance due",
+        "record": "Record payment",
+        "fullyPaid": "Fully paid.",
+        "canceledNote": "This order was canceled.",
+        "toastInvalidAmount": "Enter a valid amount.",
+        "toastFailed": "Couldn't record the payment",
+        "toastFullyPaid": "Payment recorded — order fully paid.",
+        "toastRecorded": "Payment recorded."
+      }
+    },
+    "receipt": {
+      "title": "Receipt",
+      "total": "Total",
+      "date": "Date",
+      "copy": "Copy text",
+      "print": "Print",
+      "shareWhatsapp": "Share on WhatsApp",
+      "toastCopied": "Receipt copied.",
+      "toastCopyFailed": "Couldn't copy."
+    },
+    "invoice": {
+      "title": "Invoice (NFS-e)",
+      "view": "View",
+      "downloadPdf": "Download PDF",
+      "toastFailed": "Couldn't check the invoice",
+      "notReadyYet": "Not ready yet — status: {status}",
+      "status": {
+        "SCHEDULED": "Scheduled",
+        "SYNCHRONIZED": "Issued",
+        "AUTHORIZED": "Authorized",
+        "PROCESSING_CANCELLATION": "Cancelling",
+        "CANCELLED": "Cancelled",
+        "CANCELLATION_DENIED": "Cancellation denied",
+        "ERROR": "Issuance error"
+      }
     }
   },
   "Settings": {
@@ -2325,6 +2405,16 @@
     "payments": {
       "title": "Payments",
       "description": "Connect your OWN Asaas account so the checkout Flow node can charge YOUR customers via PIX. Separate from your IMCRM subscription.",
+      "brandingTitle": "Company identity",
+      "brandingDesc": "Your name and logo appear on the documents IMCRM generates for you — receipts today, reports later. The official NFS-e PDF itself is laid out by your municipality (via Asaas), not by this.",
+      "businessNameLabel": "Company name",
+      "businessNamePlaceholder": "e.g. Salão da Ana",
+      "brandingHint": "Shown on receipts shared with customers and any future report exports.",
+      "brandingSaved": "Saved.",
+      "brandingSaveFailed": "Couldn't save.",
+      "logoTooLarge": "Image is too large (max 5 MB).",
+      "logoUploadFailed": "Couldn't upload the logo.",
+      "removeLogo": "Remove",
       "connected": "Connected",
       "notConnected": "Not connected",
       "intro": "Paste your Asaas API key (Integrations → API Key in your Asaas dashboard). It's encrypted at rest and never shown again after saving.",
@@ -2346,6 +2436,7 @@
       "webhookTokenCopied": "Token copied",
       "copyFailed": "Couldn't copy",
       "nfeTitle": "Automatic fiscal invoice (NFS-e)",
+      "nfeIntro": "Configure how orders paid through the checkout Flow get their fiscal invoice issued — pick the municipal service you bill under, then turn on auto-issue.",
       "nfeWarning": "Requires fiscal/municipal registration ALREADY completed in your own Asaas dashboard (Integrations → Fiscal Info) — IMCRM doesn't do that part. Search below only works once that's done.",
       "currentService": "Currently billing under: {service}",
       "municipalServiceLabel": "Municipal service",
