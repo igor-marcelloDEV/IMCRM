@@ -38,6 +38,12 @@ interface TaskEditorDialogProps {
   resourcesLoading: boolean;
   resourcesError: boolean;
   fixedContact?: { id: string; label: string } | null;
+  /** Ties the task back to the conversation it came from, so
+   *  TaskRow can offer a "reply on WhatsApp" link straight back to
+   *  it once the task is done. Not user-editable — set once, from
+   *  wherever the task was created (e.g. MessageThread's "Nova
+   *  tarefa" button), same shape as fixedContact. */
+  fixedConversationId?: string | null;
   onClose: () => void;
   onSave: (draft: TaskDraft) => Promise<void>;
 }
@@ -49,6 +55,7 @@ export function TaskEditorDialog({
   resourcesLoading,
   resourcesError,
   fixedContact,
+  fixedConversationId,
   onClose,
   onSave,
 }: TaskEditorDialogProps) {
@@ -98,6 +105,7 @@ export function TaskEditorDialog({
         assigned_to: assignedTo || null,
         contact_id: (fixedContact?.id ?? contactId) || null,
         deal_id: dealId || null,
+        conversation_id: fixedConversationId ?? task?.conversation_id ?? initial?.conversation_id ?? null,
       });
       onClose();
     } catch (saveError) {

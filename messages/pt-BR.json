@@ -291,6 +291,9 @@
       "assign": "Atribuir",
       "assigned": "Atribuído",
       "unassign": "Remover atribuição",
+      "newTask": "Nova tarefa",
+      "newTaskTitle": "Retornar para {name}",
+      "newTaskCreated": "Tarefa criada.",
       "noTeammates": "Nenhum colega de equipe disponível",
       "me": " (eu)",
       "noMessagesYet": "Nenhuma mensagem ainda",
@@ -412,6 +415,7 @@
       "deals": "Negócios",
       "noTags": "Nenhuma etiqueta",
       "noDeals": "Nenhum negócio",
+      "newDeal": "Novo negócio",
       "addNotePlaceholder": "Adicionar uma nota..."
     },
     "aiBanner": {
@@ -481,7 +485,8 @@
       "unknownPerson": "Pessoa sem nome",
       "unknownContact": "Contato sem nome",
       "linkedContact": "Contato vinculado",
-      "linkedDeal": "Negócio vinculado"
+      "linkedDeal": "Negócio vinculado",
+      "replyOnWhatsapp": "Responder no WhatsApp"
     },
     "editor": {
       "createTitle": "Nova tarefa",

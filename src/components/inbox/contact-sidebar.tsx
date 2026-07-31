@@ -3,14 +3,12 @@
 import { useState, useEffect, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
-import { cn } from "@/lib/utils";
-import type { Contact, Deal, ContactNote, Tag } from "@/types";
+import type { Contact, Deal, ContactNote, Tag, PipelineStage } from "@/types";
 import {
   Phone,
   Mail,
   Copy,
   Check,
-  User,
   Tag as TagIcon,
   DollarSign,
   StickyNote,
@@ -20,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { format } from "date-fns";
 import { useTranslations } from "next-intl";
+import { DealForm } from "@/components/pipelines/deal-form";
 
 interface ContactSidebarProps {
   contact: Contact | null;
@@ -36,6 +35,45 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
   const [tags, setTags] = useState<(Tag & { contact_tag_id: string })[]>([]);
   const [newNote, setNewNote] = useState("");
   const [addingNote, setAddingNote] = useState(false);
+
+  const [defaultPipeline, setDefaultPipeline] = useState<{ id: string; stages: PipelineStage[] } | null>(null);
+  const [dealFormOpen, setDealFormOpen] = useState(false);
+  const [editingDeal, setEditingDeal] = useState<Deal | null>(null);
+
+  // Lazily fetch a pipeline to seed DealForm's required props. Only
+  // its identity matters when creating (an agent can switch pipeline
+  // right there in the form); when editing, DealForm resolves the
+  // deal's own pipeline itself even if it differs from this one.
+  useEffect(() => {
+    if (defaultPipeline) return;
+    const supabase = createClient();
+    (async () => {
+      const { data: pipeline } = await supabase
+        .from("pipelines")
+        .select("id")
+        .order("created_at", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      if (!pipeline) return;
+      const { data: stages } = await supabase
+        .from("pipeline_stages")
+        .select("*")
+        .eq("pipeline_id", pipeline.id)
+        .order("position", { ascending: true });
+      setDefaultPipeline({ id: pipeline.id, stages: (stages ?? []) as PipelineStage[] });
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const openNewDeal = useCallback(() => {
+    setEditingDeal(null);
+    setDealFormOpen(true);
+  }, []);
+
+  const openEditDeal = useCallback((deal: Deal) => {
+    setEditingDeal(deal);
+    setDealFormOpen(true);
+  }, []);
 
   const fetchContactData = useCallback(async () => {
     if (!contact) return;
@@ -212,18 +250,31 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
 
           {/* Active Deals */}
           <div>
-            <div className="flex items-center gap-2 px-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              <DollarSign className="h-3 w-3" />
-              {tSidebar("deals")}
+            <div className="flex items-center justify-between gap-2 px-1">
+              <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                <DollarSign className="h-3 w-3" />
+                {tSidebar("deals")}
+              </div>
+              <button
+                type="button"
+                onClick={openNewDeal}
+                disabled={!defaultPipeline}
+                className="flex items-center gap-1 text-xs font-medium text-primary hover:text-primary/80 disabled:opacity-50"
+              >
+                <Plus className="h-3 w-3" />
+                {tSidebar("newDeal")}
+              </button>
             </div>
             <div className="mt-2 space-y-2">
               {deals.length === 0 ? (
                 <p className="px-1 text-xs text-muted-foreground">{tSidebar("noDeals")}</p>
               ) : (
                 deals.map((deal) => (
-                  <div
+                  <button
                     key={deal.id}
-                    className="rounded-lg bg-muted px-3 py-2"
+                    type="button"
+                    onClick={() => openEditDeal(deal)}
+                    className="w-full rounded-lg bg-muted px-3 py-2 text-left transition-colors hover:bg-muted/70"
                   >
                     <p className="text-sm font-medium text-foreground">
                       {deal.title}
@@ -245,7 +296,7 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
                         </span>
                       )}
                     </div>
-                  </div>
+                  </button>
                 ))
               )}
             </div>
@@ -298,6 +349,19 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
           </div>
         </div>
       </ScrollArea>
+
+      {defaultPipeline && (
+        <DealForm
+          open={dealFormOpen}
+          onOpenChange={setDealFormOpen}
+          deal={editingDeal}
+          pipelineId={defaultPipeline.id}
+          stages={defaultPipeline.stages}
+          defaultContactId={contact.id}
+          defaultTitle={contact.name || contact.phone || ""}
+          onSaved={() => void fetchContactData()}
+        />
+      )}
     </div>
   );
 }

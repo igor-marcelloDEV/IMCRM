@@ -291,6 +291,9 @@
       "assign": "Assign",
       "assigned": "Assigned",
       "unassign": "Unassign",
+      "newTask": "New task",
+      "newTaskTitle": "Follow up with {name}",
+      "newTaskCreated": "Task created.",
       "noTeammates": "No teammates available",
       "me": " (me)",
       "noMessagesYet": "No messages yet",
@@ -412,6 +415,7 @@
       "deals": "Deals",
       "noTags": "No tags",
       "noDeals": "No deals",
+      "newDeal": "New deal",
       "addNotePlaceholder": "Add a note..."
     },
     "aiBanner": {
@@ -481,7 +485,8 @@
       "unknownPerson": "Unnamed person",
       "unknownContact": "Unnamed contact",
       "linkedContact": "Linked contact",
-      "linkedDeal": "Linked deal"
+      "linkedDeal": "Linked deal",
+      "replyOnWhatsapp": "Reply on WhatsApp"
     },
     "editor": {
       "createTitle": "New task",

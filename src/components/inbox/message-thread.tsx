@@ -27,6 +27,7 @@ import {
   RefreshCw,
   PanelRightOpen,
   PanelRightClose,
+  ListTodo,
 } from "lucide-react";
 import { format, isToday, isYesterday, differenceInHours } from "date-fns";
 import { useTranslations } from "next-intl";
@@ -51,6 +52,10 @@ import { TemplatePicker } from "./template-picker";
 import { AiThreadBanner } from "./ai-thread-banner";
 import { buildReplyPreview } from "./reply-quote";
 import { toast } from "sonner";
+import { TaskEditorDialog } from "@/components/tasks/task-editor-dialog";
+import { useTaskResources } from "@/components/tasks/use-task-resources";
+import { createTask } from "@/lib/tasks/client";
+import type { TaskDraft } from "@/lib/tasks/types";
 
 interface ReplyDraft {
   id: string;
@@ -185,6 +190,8 @@ export function MessageThread({
   // doesn't feel like a no-op. Cleared via the timer ref on unmount.
   const [isRefreshing, setIsRefreshing] = useState(false);
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [taskDialogOpen, setTaskDialogOpen] = useState(false);
+  const taskResources = useTaskResources();
   useEffect(() => {
     return () => {
       if (refreshTimerRef.current !== null) {
@@ -868,6 +875,22 @@ export function MessageThread({
     ? (currentAssignee?.full_name ?? t("assigned"))
     : t("assign");
 
+  const lastCustomerMessage = [...messages]
+    .reverse()
+    .find((m) => m.sender_type === "customer" && m.content_text)?.content_text;
+  const taskInitial: Partial<TaskDraft> = {
+    title: t("newTaskTitle", { name: displayName }),
+    description: lastCustomerMessage ?? null,
+    conversation_id: conversation.id,
+  };
+
+  async function handleCreateTask(draft: TaskDraft) {
+    // draft.conversation_id is already set — TaskEditorDialog builds it
+    // from the fixedConversationId prop passed below.
+    await createTask(draft);
+    toast.success(t("newTaskCreated"));
+  }
+
   return (
     // `min-w-0` is load-bearing: the page already puts min-w-0 on the
     // thread's flex *wrapper* (issue #165), but this root keeps the
@@ -1054,6 +1077,19 @@ export function MessageThread({
               )}
             </DropdownMenuContent>
           </DropdownMenu>
+
+          {/* New task, pre-filled from this conversation — completing it
+              later can jump straight back here via TaskRow's reply link. */}
+          {contact && conversation && (
+            <button
+              type="button"
+              onClick={() => setTaskDialogOpen(true)}
+              className="inline-flex h-7 items-center justify-center gap-1 rounded-md px-2 text-xs text-muted-foreground hover:bg-muted"
+            >
+              <ListTodo className="h-3 w-3" />
+              <span className="hidden sm:inline">{t("newTask")}</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -1166,6 +1202,19 @@ export function MessageThread({
         onOpenChange={setTemplateModalOpen}
         onSelect={handleSendTemplate}
       />
+
+      {taskDialogOpen && (
+        <TaskEditorDialog
+          initial={taskInitial}
+          resources={taskResources.resources}
+          resourcesLoading={taskResources.loading}
+          resourcesError={taskResources.error}
+          fixedContact={{ id: contact.id, label: displayName }}
+          fixedConversationId={conversation.id}
+          onClose={() => setTaskDialogOpen(false)}
+          onSave={handleCreateTask}
+        />
+      )}
     </div>
   );
 }

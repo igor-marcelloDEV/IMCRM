@@ -1,12 +1,14 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import {
   BriefcaseBusiness,
   CalendarClock,
   Check,
   Circle,
   Loader2,
+  MessageCircle,
   Pencil,
   RotateCcw,
   Trash2,
@@ -190,6 +192,16 @@ export function TaskRow({
               <BriefcaseBusiness className="size-3.5 shrink-0" />
               {deal?.title || t('row.linkedDeal')}
             </span>
+          ) : null}
+
+          {task.conversation_id ? (
+            <Link
+              href={`/inbox?c=${task.conversation_id}`}
+              className="inline-flex items-center gap-1 text-primary hover:underline"
+            >
+              <MessageCircle className="size-3.5 shrink-0" />
+              {t('row.replyOnWhatsapp')}
+            </Link>
           ) : null}
         </div>
       </div>
