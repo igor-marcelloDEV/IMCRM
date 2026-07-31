@@ -105,7 +105,7 @@ $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 -- ============================================================
 
 CREATE TABLE IF NOT EXISTS public.broadcast_delivery_jobs (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   account_id UUID NOT NULL REFERENCES public.accounts(id) ON DELETE CASCADE,
   broadcast_id UUID NOT NULL REFERENCES public.broadcasts(id) ON DELETE CASCADE,
   recipient_id UUID NOT NULL
