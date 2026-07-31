@@ -2161,7 +2161,7 @@
     "nameLabel": "Seu nome",
     "namePlaceholder": "Nome completo",
     "phoneLabel": "WhatsApp / telefone",
-    "emailLabel": "E-mail (opcional)",
+    "emailLabel": "E-mail",
     "cpfLabel": "CPF/CNPJ (opcional)",
     "cpfPlaceholder": "Somente números",
     "cpfHint": "Só é necessário se quiser pagar por PIX agora — sem ele, o vendedor entra em contato para combinar o pagamento.",

@@ -84,13 +84,20 @@ export async function POST(
   const customer = body.customer && typeof body.customer === "object" ? body.customer : {};
   const name = typeof customer.name === "string" ? customer.name.trim().slice(0, 200) : "";
   const phoneDigits = normalizePhone(typeof customer.phone === "string" ? customer.phone : "");
+  const email = typeof customer.email === "string" ? customer.email.trim().slice(0, 200) : "";
   if (!name) {
     return NextResponse.json({ error: "Informe seu nome" }, { status: 400 });
   }
   if (phoneDigits.length < 10 || phoneDigits.length > 13) {
     return NextResponse.json({ error: "Informe um telefone válido com DDD" }, { status: 400 });
   }
-  const email = typeof customer.email === "string" && customer.email.trim() ? customer.email.trim().slice(0, 200) : null;
+  // Required (not just optional) so a lead captured through the
+  // storefront always lands with a complete contact record, not just
+  // a phone number — an explicit ask, distinct from cpf_cnpj (which
+  // stays optional since it's only needed for PIX, not identity).
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return NextResponse.json({ error: "Informe um e-mail válido" }, { status: 400 });
+  }
   const taxId = typeof customer.cpf_cnpj === "string" && customer.cpf_cnpj.trim()
     ? validateBrazilianTaxId(customer.cpf_cnpj)
     : null;

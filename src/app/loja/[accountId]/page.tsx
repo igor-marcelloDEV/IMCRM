@@ -92,7 +92,7 @@ export default function PublicStorePage() {
 
   const submitCheckout = useCallback(async () => {
     if (!accountId) return;
-    if (!form.name.trim() || !form.phone.trim()) {
+    if (!form.name.trim() || !form.phone.trim() || !form.email.trim()) {
       toast.error(t('toastMissingFields'));
       return;
     }
@@ -302,6 +302,7 @@ export default function PublicStorePage() {
                 onChange={(e) => setForm({ ...form, email: e.target.value })}
                 placeholder="voce@email.com"
                 type="email"
+                required
               />
             </div>
             <div>
