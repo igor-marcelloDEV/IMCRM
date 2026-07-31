@@ -6,11 +6,20 @@ import { addContactTag, deleteContactTag } from '@/lib/contacts/tag-api';
 import { useAuth } from '@/hooks/use-auth';
 import { formatCurrency } from '@/lib/currency';
 import { toast } from 'sonner';
-import type { Contact, Tag, ContactNote, CustomField, Deal, MessageTemplate } from '@/types';
+import type {
+  Contact,
+  Tag,
+  ContactNote,
+  CustomField,
+  Deal,
+  MessageTemplate,
+  PipelineStage,
+} from '@/types';
 import {
   TemplatePicker,
   type TemplateSendValues,
 } from '@/components/inbox/template-picker';
+import { DealForm } from '@/components/pipelines/deal-form';
 import {
   Sheet,
   SheetContent,
@@ -91,9 +100,14 @@ export function ContactDetailView({
   const [savingCustom, setSavingCustom] = useState(false);
   const [loadingCustom, setLoadingCustom] = useState(false);
 
-  // Deals tab
+  // Deals tab — clicking a card opens the same DealForm the Funil uses
+  // (catalog items, invoice, won/lost) instead of a read-only summary.
   const [deals, setDeals] = useState<Deal[]>([]);
   const [loadingDeals, setLoadingDeals] = useState(false);
+  const [editingDeal, setEditingDeal] = useState<Deal | null>(null);
+  const [editingStages, setEditingStages] = useState<PipelineStage[]>([]);
+  const [dealFormOpen, setDealFormOpen] = useState(false);
+  const [openingDealId, setOpeningDealId] = useState<string | null>(null);
 
   const fetchContact = useCallback(async () => {
     if (!contactId) return;
@@ -177,6 +191,22 @@ export function ContactDetailView({
     setDeals((data ?? []) as Deal[]);
     setLoadingDeals(false);
   }, [contactId, supabase]);
+
+  const openDeal = useCallback(
+    async (deal: Deal) => {
+      setOpeningDealId(deal.id);
+      const { data: stages } = await supabase
+        .from('pipeline_stages')
+        .select('*')
+        .eq('pipeline_id', deal.pipeline_id)
+        .order('position');
+      setEditingStages((stages ?? []) as PipelineStage[]);
+      setEditingDeal(deal);
+      setDealFormOpen(true);
+      setOpeningDealId(null);
+    },
+    [supabase],
+  );
 
   useEffect(() => {
     if (open && contactId) {
@@ -703,25 +733,33 @@ export function ContactDetailView({
                 ) : (
                   <div className="space-y-2">
                     {deals.map((deal) => (
-                      <div
+                      <button
                         key={deal.id}
-                        className="rounded-lg border border-border bg-muted/50 p-3"
+                        type="button"
+                        onClick={() => openDeal(deal)}
+                        disabled={openingDealId === deal.id}
+                        className="w-full rounded-lg border border-border bg-muted/50 p-3 text-left transition-colors hover:border-primary/40 hover:bg-muted disabled:opacity-60"
                       >
                         <div className="flex items-start justify-between gap-2">
                           <p className="text-sm font-medium text-foreground">
                             {deal.title}
                           </p>
-                          {deal.stage && (
-                            <span
-                              className="shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium"
-                              style={{
-                                backgroundColor: `${deal.stage.color}20`,
-                                color: deal.stage.color,
-                              }}
-                            >
-                              {deal.stage.name}
-                            </span>
-                          )}
+                          <div className="flex shrink-0 items-center gap-1.5">
+                            {deal.stage && (
+                              <span
+                                className="rounded-full px-1.5 py-0.5 text-[10px] font-medium"
+                                style={{
+                                  backgroundColor: `${deal.stage.color}20`,
+                                  color: deal.stage.color,
+                                }}
+                              >
+                                {deal.stage.name}
+                              </span>
+                            )}
+                            {openingDealId === deal.id && (
+                              <Loader2 className="size-3 animate-spin text-muted-foreground" />
+                            )}
+                          </div>
                         </div>
                         <div className="mt-1.5 flex items-center justify-between text-xs text-muted-foreground">
                           <span className="flex items-center gap-1">
@@ -743,7 +781,7 @@ export function ContactDetailView({
                             </span>
                           )}
                         </div>
-                      </div>
+                      </button>
                     ))}
                   </div>
                 )}
@@ -770,6 +808,17 @@ export function ContactDetailView({
       open={templatePickerOpen}
       onOpenChange={setTemplatePickerOpen}
       onSelect={handleSendTemplate}
+    />
+    <DealForm
+      open={dealFormOpen}
+      onOpenChange={setDealFormOpen}
+      deal={editingDeal}
+      pipelineId={editingDeal?.pipeline_id ?? ''}
+      stages={editingStages}
+      onSaved={() => {
+        fetchDeals();
+        onUpdated();
+      }}
     />
     </>
   );

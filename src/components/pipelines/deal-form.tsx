@@ -42,9 +42,12 @@ import {
   Package,
   Minus,
   Plus,
+  FileText,
+  ExternalLink,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslations } from "next-intl";
+import { CatalogPickerDialog } from "./catalog-picker-dialog";
 
 interface DealFormProps {
   open: boolean;
@@ -98,6 +101,15 @@ export function DealForm({
   const [catalogItems, setCatalogItems] = useState<CatalogItem[]>([]);
   const [orderItems, setOrderItems] = useState<OrderItem[]>([]);
   const [itemsBusy, setItemsBusy] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [order, setOrder] = useState<{
+    id: string;
+    status: string;
+    invoice_id: string | null;
+    invoice_status: string | null;
+  } | null>(null);
+  const [invoiceLoading, setInvoiceLoading] = useState(false);
+  const [invoicePdfUrl, setInvoicePdfUrl] = useState<string | null>(null);
 
   const [saving, setSaving] = useState(false);
   const [statusAction, setStatusAction] = useState<DealStatus | null>(null);
@@ -163,23 +175,31 @@ export function DealForm({
     if (!open || !deal) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setOrderItems([]);
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setOrder(null);
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setInvoicePdfUrl(null);
       return;
     }
     let cancelled = false;
     (async () => {
-      const { data: order } = await supabase
+      const { data: orderRow } = await supabase
         .from("orders")
-        .select("id")
+        .select("id, status, invoice_id, invoice_status")
         .eq("deal_id", deal.id)
         .maybeSingle();
-      if (!order) {
-        if (!cancelled) setOrderItems([]);
+      if (!orderRow) {
+        if (!cancelled) {
+          setOrderItems([]);
+          setOrder(null);
+        }
         return;
       }
+      if (!cancelled) setOrder(orderRow);
       const { data: items } = await supabase
         .from("order_items")
         .select("*")
-        .eq("order_id", order.id)
+        .eq("order_id", orderRow.id)
         .order("created_at", { ascending: true });
       if (!cancelled) setOrderItems((items as OrderItem[] | null) ?? []);
     })();
@@ -187,6 +207,28 @@ export function DealForm({
       cancelled = true;
     };
   }, [open, deal, supabase]);
+
+  const checkInvoice = useCallback(async () => {
+    if (!order) return;
+    setInvoiceLoading(true);
+    try {
+      const res = await fetch(`/api/orders/${order.id}/invoice`);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(data.error ?? t("invoice.toastFailed"));
+        return;
+      }
+      setOrder((prev) => (prev ? { ...prev, invoice_status: data.status } : prev));
+      if (data.pdf_url) {
+        setInvoicePdfUrl(data.pdf_url as string);
+        window.open(data.pdf_url as string, "_blank", "noopener,noreferrer");
+      } else {
+        toast.info(t("invoice.notReadyYet", { status: data.status ?? "" }));
+      }
+    } finally {
+      setInvoiceLoading(false);
+    }
+  }, [order, t]);
 
   // Fetch linked conversation for the selected contact (newest open one).
   // Clearing on no-selection is sync with prop state; the populated
@@ -478,27 +520,63 @@ export function DealForm({
                   )}
 
                   {availableCatalogItems.length > 0 ? (
-                    <Select
-                      value=""
-                      onValueChange={(v) => v && addCatalogItem(v)}
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
                       disabled={itemsBusy}
+                      onClick={() => setPickerOpen(true)}
+                      className="h-8 w-full justify-start gap-1.5 bg-card text-xs"
                     >
-                      <SelectTrigger className="h-8 bg-card text-xs">
-                        <SelectValue placeholder={t("items.addPlaceholder")} />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {availableCatalogItems.map((c) => (
-                          <SelectItem key={c.id} value={c.id}>
-                            {c.name} — {formatCurrency(c.price_cents / 100, c.currency)}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                      <Plus className="h-3.5 w-3.5" />
+                      {t("items.addPlaceholder")}
+                    </Button>
                   ) : catalogItems.length === 0 ? (
                     <Link href="/settings?tab=catalog" className="text-xs text-primary hover:underline">
                       {t("items.emptyCatalogCta")}
                     </Link>
                   ) : null}
+                </div>
+              )}
+
+              {order?.invoice_id && (
+                <div className="flex items-center justify-between gap-2 rounded-lg border border-border bg-muted/40 p-3">
+                  <div className="flex items-center gap-2 text-xs">
+                    <FileText className="h-3.5 w-3.5 text-muted-foreground" />
+                    <div>
+                      <p className="font-medium text-foreground">{t("invoice.title")}</p>
+                      <p className="text-muted-foreground">
+                        {t(`invoice.status.${order.invoice_status ?? "SCHEDULED"}`, {
+                          defaultValue: order.invoice_status ?? "",
+                        })}
+                      </p>
+                      {invoicePdfUrl && (
+                        <a
+                          href={invoicePdfUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-primary hover:underline"
+                        >
+                          {t("invoice.downloadPdf")}
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={invoiceLoading}
+                    onClick={checkInvoice}
+                    className="h-7 shrink-0 gap-1 text-xs"
+                  >
+                    {invoiceLoading ? (
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                    ) : (
+                      <ExternalLink className="h-3 w-3" />
+                    )}
+                    {t("invoice.view")}
+                  </Button>
                 </div>
               )}
 
@@ -692,6 +770,17 @@ export function DealForm({
           </div>
         </div>
       </SheetContent>
+
+      <CatalogPickerDialog
+        open={pickerOpen}
+        onOpenChange={setPickerOpen}
+        items={availableCatalogItems}
+        currency={currency}
+        busy={itemsBusy}
+        onAdd={(id) => {
+          void addCatalogItem(id);
+        }}
+      />
     </Sheet>
   );
 }

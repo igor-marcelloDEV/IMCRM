@@ -148,3 +148,28 @@ export async function scheduleInvoice(
     }),
   });
 }
+
+export interface AsaasInvoice {
+  id: string;
+  status: string;
+  /** Null until the city authorizes the NFS-e — issuance is async on
+   *  Asaas's side, so this can take minutes to days after scheduling. */
+  pdfUrl: string | null;
+  nfeNumber?: string | null;
+  validationCode?: string | null;
+  /** Present when status is 'AUTHORIZATION_ERROR' or similar. */
+  observations?: string | null;
+}
+
+/**
+ * Fetches the CURRENT state of a scheduled invoice — called on-demand
+ * from the "Ver NF" button rather than cached, since authorization
+ * happens asynchronously on Asaas's/the city's side after
+ * `scheduleInvoice` returns.
+ */
+export async function getInvoice(
+  config: AsaasClientConfig,
+  invoiceId: string,
+): Promise<AsaasInvoice> {
+  return nfeFetch(config, `/invoices/${invoiceId}`);
+}

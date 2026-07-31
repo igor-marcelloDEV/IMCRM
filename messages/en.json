@@ -821,7 +821,30 @@
         "title": "Catalog items",
         "addPlaceholder": "Add an item…",
         "emptyCatalogCta": "No catalog items yet — add one in Settings",
-        "toastFailed": "Couldn't update the item"
+        "toastFailed": "Couldn't update the item",
+        "pickerTitle": "Add a product or service",
+        "pickerDesc": "Search or browse the catalog and tap an item to add it to this deal.",
+        "pickerSearchPlaceholder": "Search by name or description…",
+        "pickerAllAdded": "Every catalog item is already on this deal.",
+        "pickerNoResults": "No items match your search.",
+        "pickerAdding": "Adding…",
+        "pickerClose": "Close"
+      },
+      "invoice": {
+        "title": "Invoice (NFS-e)",
+        "view": "View",
+        "downloadPdf": "Download PDF",
+        "toastFailed": "Couldn't check the invoice",
+        "notReadyYet": "Not ready yet — status: {status}",
+        "status": {
+          "SCHEDULED": "Scheduled",
+          "SYNCHRONIZED": "Issued",
+          "AUTHORIZED": "Authorized",
+          "PROCESSING_CANCELLATION": "Cancelling",
+          "CANCELLED": "Cancelled",
+          "CANCELLATION_DENIED": "Cancellation denied",
+          "ERROR": "Issuance error"
+        }
       },
       "reopenDeal": "Reopen deal",
       "cancel": "Cancel",

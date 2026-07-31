@@ -821,7 +821,30 @@
         "title": "Itens do catálogo",
         "addPlaceholder": "Adicionar um item…",
         "emptyCatalogCta": "Nenhum item no catálogo ainda — adicione em Configurações",
-        "toastFailed": "Não foi possível atualizar o item"
+        "toastFailed": "Não foi possível atualizar o item",
+        "pickerTitle": "Adicionar um produto ou serviço",
+        "pickerDesc": "Busque ou navegue pelo catálogo e toque em um item para adicioná-lo a este negócio.",
+        "pickerSearchPlaceholder": "Buscar por nome ou descrição…",
+        "pickerAllAdded": "Todos os itens do catálogo já estão neste negócio.",
+        "pickerNoResults": "Nenhum item corresponde à busca.",
+        "pickerAdding": "Adicionando…",
+        "pickerClose": "Fechar"
+      },
+      "invoice": {
+        "title": "Nota fiscal (NFS-e)",
+        "view": "Ver",
+        "downloadPdf": "Baixar PDF",
+        "toastFailed": "Não foi possível consultar a nota fiscal",
+        "notReadyYet": "Ainda não está pronta — status: {status}",
+        "status": {
+          "SCHEDULED": "Agendada",
+          "SYNCHRONIZED": "Emitida",
+          "AUTHORIZED": "Autorizada",
+          "PROCESSING_CANCELLATION": "Cancelando",
+          "CANCELLED": "Cancelada",
+          "CANCELLATION_DENIED": "Cancelamento negado",
+          "ERROR": "Erro na emissão"
+        }
       },
       "reopenDeal": "Reabrir negócio",
       "cancel": "Cancelar",
