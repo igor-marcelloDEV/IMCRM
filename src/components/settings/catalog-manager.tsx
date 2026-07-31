@@ -4,12 +4,15 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import { toast } from "sonner";
 import {
+  Check,
+  Copy,
   ImageIcon,
   Loader2,
   Package,
   Pencil,
   Plus,
   Sparkles,
+  Store,
   Trash2,
   Upload,
   Video,
@@ -47,6 +50,7 @@ interface DraftState {
   media_type: "image" | "video" | null;
   is_upsell: boolean;
   is_active: boolean;
+  stock: string; // integer, as typed — empty means "not tracked" (unlimited)
 }
 
 function emptyDraft(): DraftState {
@@ -58,6 +62,7 @@ function emptyDraft(): DraftState {
     media_type: null,
     is_upsell: false,
     is_active: true,
+    stock: "",
   };
 }
 
@@ -71,6 +76,7 @@ function toDraft(item: CatalogItem): DraftState {
     media_type: item.media_type,
     is_upsell: item.is_upsell,
     is_active: item.is_active,
+    stock: item.stock_quantity === null ? "" : String(item.stock_quantity),
   };
 }
 
@@ -80,6 +86,8 @@ export function CatalogManager() {
   const [loading, setLoading] = useState(true);
   const [draft, setDraft] = useState<DraftState | null>(null);
   const [saving, setSaving] = useState(false);
+  const [accountId, setAccountId] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -96,6 +104,26 @@ export function CatalogManager() {
     void load();
   }, [load]);
 
+  useEffect(() => {
+    fetch("/api/account", { cache: "no-store" })
+      .then((res) => res.json())
+      .then((data) => setAccountId(data?.account?.id ?? null))
+      .catch(() => {});
+  }, []);
+
+  const storeUrl =
+    accountId && typeof window !== "undefined"
+      ? `${window.location.origin}/loja/${accountId}`
+      : null;
+
+  const copyStoreUrl = useCallback(() => {
+    if (!storeUrl) return;
+    void navigator.clipboard.writeText(storeUrl).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }, [storeUrl]);
+
   const openCreate = () => setDraft(emptyDraft());
   const openEdit = (item: CatalogItem) => setDraft(toDraft(item));
 
@@ -111,6 +139,16 @@ export function CatalogManager() {
       return;
     }
 
+    let stockQuantity: number | null = null;
+    if (draft.stock.trim() !== "") {
+      const parsed = Number(draft.stock);
+      if (!Number.isInteger(parsed) || parsed < 0) {
+        toast.error(t("toastStockInvalid"));
+        return;
+      }
+      stockQuantity = parsed;
+    }
+
     const payload = {
       name: draft.name,
       description: draft.description,
@@ -119,6 +157,7 @@ export function CatalogManager() {
       media_type: draft.media_url ? draft.media_type : null,
       is_upsell: draft.is_upsell,
       is_active: draft.is_active,
+      stock_quantity: stockQuantity,
     };
 
     setSaving(true);
@@ -172,6 +211,20 @@ export function CatalogManager() {
         }
       />
 
+      {storeUrl && (
+        <div className="mb-4 flex items-center gap-3 rounded-lg border border-border bg-muted/50 p-3">
+          <Store className="h-4 w-4 shrink-0 text-cyan-400" />
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium text-foreground">{t("storeLinkTitle")}</p>
+            <p className="truncate text-xs text-muted-foreground" title={storeUrl}>{storeUrl}</p>
+          </div>
+          <Button variant="outline" size="sm" onClick={copyStoreUrl} className="shrink-0">
+            {copied ? <Check className="mr-1 h-3.5 w-3.5" /> : <Copy className="mr-1 h-3.5 w-3.5" />}
+            {copied ? t("storeLinkCopied") : t("storeLinkCopy")}
+          </Button>
+        </div>
+      )}
+
       {loading ? (
         <div className="flex justify-center py-10">
           <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -211,6 +264,16 @@ export function CatalogManager() {
                   {!item.is_active && (
                     <span className="rounded-full border border-border bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
                       {t("inactiveBadge")}
+                    </span>
+                  )}
+                  {item.stock_quantity !== null && item.stock_quantity <= 0 && (
+                    <span className="rounded-full border border-red-500/40 bg-red-500/10 px-1.5 py-0.5 text-[10px] font-medium text-red-300">
+                      {t("outOfStockBadge")}
+                    </span>
+                  )}
+                  {item.stock_quantity !== null && item.stock_quantity > 0 && (
+                    <span className="rounded-full border border-border bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                      {t("stockBadge", { count: item.stock_quantity })}
                     </span>
                   )}
                 </div>
@@ -262,16 +325,29 @@ export function CatalogManager() {
                   className="min-h-20 bg-muted text-foreground"
                 />
               </div>
-              <div>
-                <label className="mb-1 block text-xs text-muted-foreground">{t("priceLabel")}</label>
-                <Input
-                  value={draft.price}
-                  onChange={(e) => setDraft({ ...draft, price: e.target.value })}
-                  placeholder="0,00"
-                  inputMode="decimal"
-                  className="bg-muted text-foreground"
-                />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="mb-1 block text-xs text-muted-foreground">{t("priceLabel")}</label>
+                  <Input
+                    value={draft.price}
+                    onChange={(e) => setDraft({ ...draft, price: e.target.value })}
+                    placeholder="0,00"
+                    inputMode="decimal"
+                    className="bg-muted text-foreground"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs text-muted-foreground">{t("stockLabel")}</label>
+                  <Input
+                    value={draft.stock}
+                    onChange={(e) => setDraft({ ...draft, stock: e.target.value })}
+                    placeholder={t("stockPlaceholder")}
+                    inputMode="numeric"
+                    className="bg-muted text-foreground"
+                  />
+                </div>
               </div>
+              <p className="-mt-2 text-xs text-muted-foreground">{t("stockHint")}</p>
 
               <MediaField draft={draft} onChange={(patch) => setDraft({ ...draft, ...patch })} t={t} />
 

@@ -26,11 +26,41 @@ async function recomputeOrderTotal(db: ReturnType<typeof supabaseAdmin>, orderId
 async function loadLine(db: ReturnType<typeof supabaseAdmin>, orderId: string, itemId: string) {
   const { data: line } = await db
     .from("order_items")
-    .select("id, order_id, unit_price_cents")
+    .select("id, order_id, catalog_item_id, quantity, unit_price_cents")
     .eq("id", itemId)
     .eq("order_id", orderId)
     .maybeSingle();
   return line;
+}
+
+// Positive `delta` reserves stock (checked, can fail); negative `delta`
+// returns stock (always succeeds). No-ops for items with no
+// catalog_item_id (deleted from the catalog since) or untracked stock.
+async function adjustStock(
+  db: ReturnType<typeof supabaseAdmin>,
+  catalogItemId: string | null,
+  delta: number,
+): Promise<{ ok: true } | { ok: false }> {
+  if (!catalogItemId || delta === 0) return { ok: true };
+
+  const { data: item } = await db
+    .from("catalog_items")
+    .select("id, stock_quantity")
+    .eq("id", catalogItemId)
+    .maybeSingle();
+  if (!item || item.stock_quantity === null) return { ok: true };
+
+  const next = item.stock_quantity - delta;
+  if (next < 0) return { ok: false };
+
+  const { data: updated } = await db
+    .from("catalog_items")
+    .update({ stock_quantity: next })
+    .eq("id", item.id)
+    .eq("stock_quantity", item.stock_quantity)
+    .select("id")
+    .maybeSingle();
+  return updated ? { ok: true } : { ok: false };
 }
 
 export async function PATCH(
@@ -68,6 +98,12 @@ export async function PATCH(
 
   const line = await loadLine(db, orderId, itemId);
   if (!line) return NextResponse.json({ error: "Item não encontrado" }, { status: 404 });
+
+  const delta = quantity - line.quantity;
+  const stockResult = await adjustStock(db, line.catalog_item_id, delta);
+  if (!stockResult.ok) {
+    return NextResponse.json({ error: "Item sem estoque disponível" }, { status: 409 });
+  }
 
   if (quantity === 0) {
     await db.from("order_items").delete().eq("id", itemId);

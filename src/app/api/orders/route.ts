@@ -54,5 +54,17 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Não foi possível abrir a comanda" }, { status: 500 });
   }
 
+  const { error: activityError } = await db.rpc("append_activity", {
+    p_account_id: ctx.accountId,
+    p_actor_id: ctx.userId,
+    p_event_type: "order.opened",
+    p_entity_type: "order",
+    p_entity_id: order.id,
+    p_summary: `Comanda #${order.order_number} aberta para ${contact.name || contact.phone}`,
+    p_order_id: order.id,
+    p_contact_id: contact.id,
+  });
+  if (activityError) console.error("[POST /api/orders] append_activity error:", activityError);
+
   return NextResponse.json({ order });
 }

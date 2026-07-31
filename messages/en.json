@@ -809,6 +809,7 @@
       "value": "Value",
       "currency": "Currency",
       "expectedCloseDate": "Expected Close Date",
+      "pipeline": "Pipeline",
       "stage": "Stage",
       "assignedTo": "Assigned To",
       "unassigned": "Unassigned",
@@ -2021,6 +2022,7 @@
     "listTitle": "All orders",
     "listDescription": "The last 100 orders for this account, newest first.",
     "empty": "No orders yet. Open a comanda, or wait for a customer to finish a checkout Flow.",
+    "colNumber": "No.",
     "colContact": "Customer",
     "colItems": "Items",
     "colTotal": "Total",
@@ -2033,6 +2035,8 @@
     "viewDeal": "View in Pipeline",
     "sourceManual": "Comanda",
     "sourceWhatsapp": "WhatsApp checkout",
+    "hideRevenue": "Hide amounts",
+    "showRevenue": "Show amounts",
     "status": {
       "pending_payment": "Awaiting payment",
       "paid": "Paid",
@@ -2074,6 +2078,8 @@
         "method": {
           "cash": "Cash",
           "card": "Card",
+          "card_debit": "Debit card",
+          "card_credit": "Credit card",
           "pix_manual": "PIX (manual)",
           "pix_asaas": "PIX (Asaas)",
           "other": "Other"
@@ -2090,13 +2096,17 @@
     },
     "receipt": {
       "title": "Receipt",
+      "orderRef": "Order",
       "total": "Total",
       "date": "Date",
       "copy": "Copy text",
       "print": "Print",
-      "shareWhatsapp": "Share on WhatsApp",
+      "shareWhatsapp": "Send PDF on WhatsApp",
+      "historyTitle": "History",
       "toastCopied": "Receipt copied.",
-      "toastCopyFailed": "Couldn't copy."
+      "toastCopyFailed": "Couldn't copy.",
+      "toastShareFailed": "Couldn't generate the PDF.",
+      "pdfDownloadedAttachManually": "PDF downloaded — attach it in WhatsApp manually."
     },
     "invoice": {
       "title": "Invoice (NFS-e)",
@@ -2113,6 +2123,45 @@
         "CANCELLATION_DENIED": "Cancellation denied",
         "ERROR": "Issuance error"
       }
+    }
+  },
+  "PublicStore": {
+    "tagline": "Browse and order online",
+    "empty": "No items available right now.",
+    "notFound": "Store not found.",
+    "outOfStock": "Out of stock",
+    "add": "Add",
+    "cartCount": "{count} {count, plural, =1 {item} other {items}}",
+    "checkoutButton": "Checkout",
+    "checkoutTitle": "Complete your order",
+    "removeItem": "Remove item",
+    "total": "Total",
+    "nameLabel": "Your name",
+    "namePlaceholder": "Full name",
+    "phoneLabel": "WhatsApp / phone",
+    "emailLabel": "Email (optional)",
+    "cpfLabel": "CPF/CNPJ (optional)",
+    "cpfPlaceholder": "Digits only",
+    "cpfHint": "Only needed if you want to pay by PIX now — without it, the seller will follow up to arrange payment.",
+    "cancel": "Cancel",
+    "confirmOrder": "Confirm order",
+    "toastMissingFields": "Enter your name and phone.",
+    "toastCheckoutFailed": "Couldn't complete the order. Please try again.",
+    "order": {
+      "notFound": "Order not found.",
+      "orderRef": "Order #{id}",
+      "statusPaid": "Payment confirmed",
+      "statusPending": "Awaiting payment",
+      "statusCanceled": "Order canceled",
+      "pixTitle": "Pay by PIX",
+      "pixHint": "Copy the code below and paste it into your bank's PIX \"copy and paste\" option.",
+      "pixCopy": "Copy PIX code",
+      "pixCopied": "PIX code copied.",
+      "pendingManual": "Order received — the seller will contact you shortly to arrange payment.",
+      "checkPayment": "Check payment",
+      "itemsTitle": "Order items",
+      "total": "Total",
+      "paidAt": "Paid on {date}"
     }
   },
   "Settings": {
@@ -2397,10 +2446,19 @@
       "deleteConfirm": "Delete this item?",
       "toastNameRequired": "Give the item a name.",
       "toastPriceInvalid": "Enter a valid price.",
+      "toastStockInvalid": "Enter a valid stock quantity (a whole number, 0 or more).",
       "toastSaveFailed": "Couldn't save the item.",
       "toastUpdated": "Item updated.",
       "toastCreated": "Item created.",
-      "toastDeleteFailed": "Couldn't delete the item."
+      "toastDeleteFailed": "Couldn't delete the item.",
+      "stockLabel": "Stock",
+      "stockPlaceholder": "Unlimited",
+      "stockHint": "Leave blank to not track stock. Once set, every sale (comanda or public store) deducts it automatically.",
+      "stockBadge": "{count} in stock",
+      "outOfStockBadge": "Out of stock",
+      "storeLinkTitle": "Public store",
+      "storeLinkCopy": "Copy link",
+      "storeLinkCopied": "Copied!"
     },
     "payments": {
       "title": "Payments",

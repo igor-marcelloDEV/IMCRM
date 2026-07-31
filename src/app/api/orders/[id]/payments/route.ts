@@ -1,8 +1,19 @@
 import { NextResponse } from "next/server";
 import { requireRole, toErrorResponse } from "@/lib/auth/account";
 import { supabaseAdmin } from "@/lib/automations/admin-client";
+import { formatCurrency } from "@/lib/currency";
 
-const VALID_METHODS = ["cash", "card", "pix_manual", "pix_asaas", "other"] as const;
+const VALID_METHODS = ["cash", "card", "card_debit", "card_credit", "pix_manual", "pix_asaas", "other"] as const;
+
+const METHOD_LABEL: Record<(typeof VALID_METHODS)[number], string> = {
+  cash: "Dinheiro",
+  card: "Cartão",
+  card_debit: "Cartão débito",
+  card_credit: "Cartão crédito",
+  pix_manual: "PIX",
+  pix_asaas: "PIX",
+  other: "Outro",
+};
 
 /**
  * POST /api/orders/[id]/payments — record a payment by hand (cash,
@@ -45,7 +56,7 @@ export async function POST(
   const db = supabaseAdmin();
   const { data: order } = await db
     .from("orders")
-    .select("id, status, total_cents")
+    .select("id, status, total_cents, contact_id, currency")
     .eq("id", orderId)
     .eq("account_id", ctx.accountId)
     .maybeSingle();
@@ -69,6 +80,19 @@ export async function POST(
     console.error("[POST /api/orders/[id]/payments] insert error:", insertError);
     return NextResponse.json({ error: "Não foi possível registrar o pagamento" }, { status: 500 });
   }
+
+  const methodLabel = METHOD_LABEL[method as (typeof VALID_METHODS)[number]];
+  const { error: activityError } = await db.rpc("append_activity", {
+    p_account_id: ctx.accountId,
+    p_actor_id: ctx.userId,
+    p_event_type: "order.payment_recorded",
+    p_entity_type: "order",
+    p_entity_id: orderId,
+    p_summary: `Pagamento de ${formatCurrency(amountCents / 100, order.currency)} (${methodLabel}) registrado`,
+    p_order_id: orderId,
+    p_contact_id: order.contact_id,
+  });
+  if (activityError) console.error("[POST /api/orders/[id]/payments] append_activity error:", activityError);
 
   const { data: payments } = await db
     .from("order_payments")

@@ -55,6 +55,13 @@ interface DealFormProps {
   pipelineId: string;
   stages: PipelineStage[];
   defaultStageId?: string;
+  /** Pre-selects the contact in create mode — used when opening the
+   *  form from a specific contact's context (inbox sidebar) so the
+   *  agent doesn't have to pick them again. Ignored when editing. */
+  defaultContactId?: string;
+  /** Pre-fills the title in create mode, same "don't make them retype
+   *  what we already know" reasoning as defaultContactId. */
+  defaultTitle?: string;
   onSaved: () => void;
 }
 
@@ -77,6 +84,8 @@ export function DealForm({
   pipelineId,
   stages,
   defaultStageId,
+  defaultContactId,
+  defaultTitle,
   onSaved,
 }: DealFormProps) {
   const t = useTranslations("Pipelines.form");
@@ -87,6 +96,7 @@ export function DealForm({
   const [value, setValue] = useState("");
   const [currency, setCurrency] = useState(defaultCurrency);
   const [contactId, setContactId] = useState("");
+  const [selectedPipelineId, setSelectedPipelineId] = useState(pipelineId);
   const [stageId, setStageId] = useState("");
   const [assignedTo, setAssignedTo] = useState("");
   const [expectedCloseDate, setExpectedCloseDate] = useState("");
@@ -94,6 +104,14 @@ export function DealForm({
 
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
+  // Every pipeline the account has, so a deal can move out of the one
+  // the board happened to be open to — "it's in the wrong funnel" is a
+  // real correction, not just a wrong stage within the same funnel.
+  const [pipelines, setPipelines] = useState<{ id: string; name: string }[]>([]);
+  // Stages for `selectedPipelineId`. Seeded from the `stages` prop
+  // (the board's current pipeline, no extra fetch needed) and only
+  // re-fetched once the agent actually picks a *different* pipeline.
+  const [pipelineStages, setPipelineStages] = useState<PipelineStage[]>(stages);
   const [linkedConversation, setLinkedConversation] =
     useState<Conversation | null>(null);
 
@@ -127,21 +145,25 @@ export function DealForm({
       // contact_id is nullable when the contact has been deleted
       // (migration 004: ON DELETE SET NULL). "" means "no selection".
       setContactId(deal.contact_id ?? "");
+      setSelectedPipelineId(deal.pipeline_id);
+      setPipelineStages(deal.pipeline_id === pipelineId ? stages : []);
       setStageId(deal.stage_id);
       setAssignedTo(deal.assigned_to ?? "");
       setExpectedCloseDate(deal.expected_close_date ?? "");
       setNotes(deal.notes ?? "");
     } else {
-      setTitle("");
+      setTitle(defaultTitle ?? "");
       setValue("");
       setCurrency(defaultCurrency);
-      setContactId("");
+      setContactId(defaultContactId || "");
+      setSelectedPipelineId(pipelineId);
+      setPipelineStages(stages);
       setStageId(defaultStageId || stages[0]?.id || "");
       setAssignedTo("");
       setExpectedCloseDate("");
       setNotes("");
     }
-  }, [open, deal, defaultStageId, stages, defaultCurrency]);
+  }, [open, deal, defaultStageId, defaultContactId, defaultTitle, pipelineId, stages, defaultCurrency]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
   // Load supporting data once the sheet is open
@@ -149,20 +171,49 @@ export function DealForm({
     if (!open) return;
     let cancelled = false;
     (async () => {
-      const [c, p, ci] = await Promise.all([
+      const [c, p, ci, pl] = await Promise.all([
         supabase.from("contacts").select("*").order("name"),
         supabase.from("profiles").select("*").order("full_name"),
         supabase.from("catalog_items").select("*").eq("is_active", true).order("position"),
+        supabase.from("pipelines").select("id, name").order("name"),
       ]);
       if (cancelled) return;
       setContacts((c.data ?? []) as Contact[]);
       setProfiles((p.data ?? []) as Profile[]);
       setCatalogItems((ci.data ?? []) as CatalogItem[]);
+      setPipelines((pl.data ?? []) as { id: string; name: string }[]);
     })();
     return () => {
       cancelled = true;
     };
   }, [open, supabase]);
+
+  // Stages for whichever pipeline is currently selected. The board's
+  // own pipeline is already known via the `stages` prop (no fetch);
+  // switching to any other pipeline fetches that pipeline's stages,
+  // then lands on its first one — the old stage_id can't apply there.
+  useEffect(() => {
+    if (!open) return;
+    if (selectedPipelineId === pipelineId) {
+      setPipelineStages(stages);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase
+        .from("pipeline_stages")
+        .select("*")
+        .eq("pipeline_id", selectedPipelineId)
+        .order("position");
+      if (cancelled) return;
+      const fetched = (data ?? []) as PipelineStage[];
+      setPipelineStages(fetched);
+      setStageId((prev) => (fetched.some((s) => s.id === prev) ? prev : fetched[0]?.id ?? ""));
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, selectedPipelineId, pipelineId, stages, supabase]);
 
   // Catalog items attached to this deal, via the Order the API routes
   // below create/maintain on first add (orders.deal_id). Only existing
@@ -297,7 +348,7 @@ export function DealForm({
       value: parseFloat(value) || 0,
       currency,
       contact_id: contactId,
-      pipeline_id: pipelineId,
+      pipeline_id: selectedPipelineId,
       stage_id: stageId,
       assigned_to: assignedTo || null,
       notes: notes.trim() || null,
@@ -551,13 +602,31 @@ export function DealForm({
             <FormSection title={t("sectionProgress")}>
               <div className="grid grid-cols-2 gap-3">
                 <div className="grid gap-2">
+                  <Label className="text-muted-foreground">{t("pipeline")}</Label>
+                  <Select
+                    value={selectedPipelineId}
+                    onValueChange={(v) => v && setSelectedPipelineId(v)}
+                  >
+                    <SelectTrigger className="bg-muted">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {pipelines.map((p) => (
+                        <SelectItem key={p.id} value={p.id}>
+                          {p.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="grid gap-2">
                   <Label className="text-muted-foreground">{t("stage")}</Label>
                   <Select value={stageId} onValueChange={(v) => v && setStageId(v)}>
                     <SelectTrigger className="bg-muted">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {stages.map((s) => (
+                      {pipelineStages.map((s) => (
                         <SelectItem key={s.id} value={s.id}>
                           {s.name}
                         </SelectItem>
@@ -565,22 +634,23 @@ export function DealForm({
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="grid gap-2">
-                  <Label className="text-muted-foreground">{t("assignedTo")}</Label>
-                  <Select value={assignedTo || "__none__"} onValueChange={(v) => setAssignedTo(v === "__none__" ? "" : (v ?? ""))}>
-                    <SelectTrigger className="bg-muted">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__none__">{t("unassigned")}</SelectItem>
-                      {profiles.map((p) => (
-                        <SelectItem key={p.id} value={p.id}>
-                          {p.full_name || p.email}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+              </div>
+
+              <div className="grid gap-2">
+                <Label className="text-muted-foreground">{t("assignedTo")}</Label>
+                <Select value={assignedTo || "__none__"} onValueChange={(v) => setAssignedTo(v === "__none__" ? "" : (v ?? ""))}>
+                  <SelectTrigger className="bg-muted">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">{t("unassigned")}</SelectItem>
+                    {profiles.map((p) => (
+                      <SelectItem key={p.id} value={p.id}>
+                        {p.full_name || p.email}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
 
               <div className="grid gap-2">

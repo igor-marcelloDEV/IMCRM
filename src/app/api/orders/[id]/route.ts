@@ -28,7 +28,7 @@ export async function PATCH(
   const db = supabaseAdmin();
   const { data: order } = await db
     .from("orders")
-    .select("id, status")
+    .select("id, status, contact_id")
     .eq("id", orderId)
     .eq("account_id", ctx.accountId)
     .maybeSingle();
@@ -76,5 +76,42 @@ export async function PATCH(
     return NextResponse.json({ error: "Não foi possível atualizar o pedido" }, { status: 500 });
   }
 
+  if (update.status === "canceled") {
+    await restoreStockForCanceledOrder(db, orderId);
+    const { error: activityError } = await db.rpc("append_activity", {
+      p_account_id: ctx.accountId,
+      p_actor_id: ctx.userId,
+      p_event_type: "order.canceled",
+      p_entity_type: "order",
+      p_entity_id: orderId,
+      p_summary: "Comanda cancelada",
+      p_order_id: orderId,
+      p_contact_id: order.contact_id,
+    });
+    if (activityError) console.error("[PATCH /api/orders/[id]] append_activity error:", activityError);
+  }
+
   return NextResponse.json({ order: updated });
+}
+
+/** Returns every tracked-stock line back to the catalog on cancellation. */
+async function restoreStockForCanceledOrder(db: ReturnType<typeof supabaseAdmin>, orderId: string) {
+  const { data: lines } = await db
+    .from("order_items")
+    .select("catalog_item_id, quantity")
+    .eq("order_id", orderId)
+    .not("catalog_item_id", "is", null);
+  for (const line of (lines as { catalog_item_id: string; quantity: number }[] | null) ?? []) {
+    const { data: item } = await db
+      .from("catalog_items")
+      .select("id, stock_quantity")
+      .eq("id", line.catalog_item_id)
+      .maybeSingle();
+    if (item?.stock_quantity !== null && item?.stock_quantity !== undefined) {
+      await db
+        .from("catalog_items")
+        .update({ stock_quantity: item.stock_quantity + line.quantity })
+        .eq("id", item.id);
+    }
+  }
 }

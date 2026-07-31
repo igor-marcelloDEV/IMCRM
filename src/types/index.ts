@@ -802,13 +802,16 @@ export interface CatalogItem {
   is_upsell: boolean;
   is_active: boolean;
   position: number;
+  /** NULL = not tracked (unlimited). Decremented atomically on every
+   *  checkout path (public store, comanda item add) once set. */
+  stock_quantity: number | null;
   created_at: string;
   updated_at: string;
 }
 
 export type OrderStatus = 'pending_payment' | 'paid' | 'canceled';
 
-export type OrderSource = 'whatsapp_checkout' | 'manual';
+export type OrderSource = 'whatsapp_checkout' | 'manual' | 'public_store';
 
 export interface Order {
   id: string;
@@ -816,6 +819,9 @@ export interface Order {
   cart_id: string | null;
   contact_id: string | null;
   deal_id: string | null;
+  /** Per-account sequential number ("Comanda #7") — assigned atomically
+   *  by a DB trigger on insert (migration 066), never client-supplied. */
+  order_number: number;
   status: OrderStatus;
   subtotal_cents: number;
   total_cents: number;
@@ -825,7 +831,8 @@ export interface Order {
   invoice_id: string | null;
   invoice_status: string | null;
   /** 'manual' = opened directly as a comanda; 'whatsapp_checkout' = created
-   *  by the checkout Flow node (migration 064). */
+   *  by the checkout Flow node (migration 064); 'public_store' = the
+   *  customer checked out themselves on /loja/[account_id] (migration 065). */
   source: OrderSource;
   notes: string | null;
   created_at: string;
@@ -844,7 +851,16 @@ export interface OrderItem {
   created_at: string;
 }
 
-export type OrderPaymentMethod = 'cash' | 'card' | 'pix_manual' | 'pix_asaas' | 'other';
+/** 'card' stays valid for rows recorded before the debit/credit split
+ *  (migration 066) but is no longer offered as a new choice in the UI. */
+export type OrderPaymentMethod =
+  | 'cash'
+  | 'card'
+  | 'card_debit'
+  | 'card_credit'
+  | 'pix_manual'
+  | 'pix_asaas'
+  | 'other';
 
 /** A payment recorded by hand against an order (migration 064) — cash,
  *  card, a PIX paid outside Asaas, or a split across methods. Separate

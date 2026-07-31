@@ -809,6 +809,7 @@
       "value": "Valor",
       "currency": "Moeda",
       "expectedCloseDate": "Data prevista de fechamento",
+      "pipeline": "Funil",
       "stage": "Etapa",
       "assignedTo": "Atribuído a",
       "unassigned": "Não atribuído",
@@ -2021,6 +2022,7 @@
     "listTitle": "Todos os pedidos",
     "listDescription": "Os últimos 100 pedidos desta conta, mais recentes primeiro.",
     "empty": "Nenhum pedido ainda. Abra uma comanda, ou espere um cliente terminar um Fluxo de checkout.",
+    "colNumber": "Nº",
     "colContact": "Cliente",
     "colItems": "Itens",
     "colTotal": "Total",
@@ -2033,6 +2035,8 @@
     "viewDeal": "Ver no Funil",
     "sourceManual": "Comanda",
     "sourceWhatsapp": "Checkout do WhatsApp",
+    "hideRevenue": "Ocultar valores",
+    "showRevenue": "Mostrar valores",
     "status": {
       "pending_payment": "Aguardando pagamento",
       "paid": "Pago",
@@ -2074,6 +2078,8 @@
         "method": {
           "cash": "Dinheiro",
           "card": "Cartão",
+          "card_debit": "Cartão débito",
+          "card_credit": "Cartão crédito",
           "pix_manual": "PIX (manual)",
           "pix_asaas": "PIX (Asaas)",
           "other": "Outro"
@@ -2090,13 +2096,17 @@
     },
     "receipt": {
       "title": "Comprovante",
+      "orderRef": "Comanda",
       "total": "Total",
       "date": "Data",
       "copy": "Copiar texto",
       "print": "Imprimir",
-      "shareWhatsapp": "Compartilhar no WhatsApp",
+      "shareWhatsapp": "Enviar PDF no WhatsApp",
+      "historyTitle": "Histórico",
       "toastCopied": "Comprovante copiado.",
-      "toastCopyFailed": "Não foi possível copiar."
+      "toastCopyFailed": "Não foi possível copiar.",
+      "toastShareFailed": "Não foi possível gerar o PDF.",
+      "pdfDownloadedAttachManually": "PDF baixado — anexe no WhatsApp manualmente."
     },
     "invoice": {
       "title": "Nota fiscal (NFS-e)",
@@ -2113,6 +2123,45 @@
         "CANCELLATION_DENIED": "Cancelamento negado",
         "ERROR": "Erro na emissão"
       }
+    }
+  },
+  "PublicStore": {
+    "tagline": "Navegue e peça online",
+    "empty": "Nenhum item disponível no momento.",
+    "notFound": "Loja não encontrada.",
+    "outOfStock": "Esgotado",
+    "add": "Adicionar",
+    "cartCount": "{count} {count, plural, =1 {item} other {itens}}",
+    "checkoutButton": "Fechar pedido",
+    "checkoutTitle": "Finalizar pedido",
+    "removeItem": "Remover item",
+    "total": "Total",
+    "nameLabel": "Seu nome",
+    "namePlaceholder": "Nome completo",
+    "phoneLabel": "WhatsApp / telefone",
+    "emailLabel": "E-mail (opcional)",
+    "cpfLabel": "CPF/CNPJ (opcional)",
+    "cpfPlaceholder": "Somente números",
+    "cpfHint": "Só é necessário se quiser pagar por PIX agora — sem ele, o vendedor entra em contato para combinar o pagamento.",
+    "cancel": "Cancelar",
+    "confirmOrder": "Confirmar pedido",
+    "toastMissingFields": "Informe seu nome e telefone.",
+    "toastCheckoutFailed": "Não foi possível fechar o pedido. Tente novamente.",
+    "order": {
+      "notFound": "Pedido não encontrado.",
+      "orderRef": "Pedido #{id}",
+      "statusPaid": "Pagamento confirmado",
+      "statusPending": "Aguardando pagamento",
+      "statusCanceled": "Pedido cancelado",
+      "pixTitle": "Pagar com PIX",
+      "pixHint": "Copie o código abaixo e cole na opção \"PIX copia e cola\" do seu banco.",
+      "pixCopy": "Copiar código PIX",
+      "pixCopied": "Código PIX copiado.",
+      "pendingManual": "Pedido recebido — o vendedor vai entrar em contato em breve para combinar o pagamento.",
+      "checkPayment": "Verificar pagamento",
+      "itemsTitle": "Itens do pedido",
+      "total": "Total",
+      "paidAt": "Pago em {date}"
     }
   },
   "Settings": {
@@ -2397,10 +2446,19 @@
       "deleteConfirm": "Excluir este item?",
       "toastNameRequired": "Dê um nome ao item.",
       "toastPriceInvalid": "Informe um preço válido.",
+      "toastStockInvalid": "Informe uma quantidade em estoque válida (inteiro, 0 ou mais).",
       "toastSaveFailed": "Não foi possível salvar o item.",
       "toastUpdated": "Item atualizado.",
       "toastCreated": "Item criado.",
-      "toastDeleteFailed": "Não foi possível excluir o item."
+      "toastDeleteFailed": "Não foi possível excluir o item.",
+      "stockLabel": "Estoque",
+      "stockPlaceholder": "Ilimitado",
+      "stockHint": "Deixe em branco para não controlar estoque. Preenchido, cada venda (comanda ou loja pública) desconta automaticamente.",
+      "stockBadge": "{count} em estoque",
+      "outOfStockBadge": "Esgotado",
+      "storeLinkTitle": "Loja pública",
+      "storeLinkCopy": "Copiar link",
+      "storeLinkCopied": "Copiado!"
     },
     "payments": {
       "title": "Pagamentos",

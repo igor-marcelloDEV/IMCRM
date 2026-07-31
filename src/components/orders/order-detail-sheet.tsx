@@ -53,7 +53,7 @@ function FormSection({ title, children }: { title: string; children: React.React
   );
 }
 
-const PAYMENT_METHODS: OrderPaymentMethod[] = ["cash", "pix_manual", "card", "other"];
+const PAYMENT_METHODS: OrderPaymentMethod[] = ["cash", "pix_manual", "card_debit", "card_credit", "other"];
 
 export function OrderDetailSheet({ open, onOpenChange, orderId, onSaved }: OrderDetailSheetProps) {
   const t = useTranslations("Orders.detail");
@@ -244,7 +244,9 @@ export function OrderDetailSheet({ open, onOpenChange, orderId, onSaved }: Order
         <div className="flex h-full flex-col">
           <SheetHeader className="border-b border-border/50 p-4">
             <SheetTitle className="text-popover-foreground">
-              {order?.source === "manual" ? t("titleComanda") : t("titleOrder")}
+              {order
+                ? `${order.source === "manual" ? t("titleComanda") : t("titleOrder")} #${order.order_number}`
+                : t("titleOrder")}
             </SheetTitle>
           </SheetHeader>
 

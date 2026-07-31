@@ -45,6 +45,17 @@ export async function PATCH(
   if ('is_upsell' in body) update.is_upsell = body.is_upsell === true
   if ('is_active' in body) update.is_active = body.is_active !== false
   if ('position' in body && Number.isFinite(Number(body.position))) update.position = Number(body.position)
+  if ('stock_quantity' in body) {
+    if (body.stock_quantity === null || body.stock_quantity === '') {
+      update.stock_quantity = null
+    } else {
+      const parsed = Number(body.stock_quantity)
+      if (!Number.isFinite(parsed) || parsed < 0 || !Number.isInteger(parsed)) {
+        return NextResponse.json({ error: "'stock_quantity' deve ser um número inteiro >= 0" }, { status: 400 })
+      }
+      update.stock_quantity = parsed
+    }
+  }
 
   if (Object.keys(update).length === 0) {
     return NextResponse.json({ ok: true })

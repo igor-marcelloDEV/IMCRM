@@ -46,6 +46,14 @@ export async function POST(request: Request) {
   if (body.media_url && !mediaType) {
     return NextResponse.json({ error: "'media_type' é obrigatório quando 'media_url' é definido" }, { status: 400 })
   }
+  let stockQuantity: number | null = null
+  if (body.stock_quantity !== undefined && body.stock_quantity !== null && body.stock_quantity !== '') {
+    const parsed = Number(body.stock_quantity)
+    if (!Number.isFinite(parsed) || parsed < 0 || !Number.isInteger(parsed)) {
+      return NextResponse.json({ error: "'stock_quantity' deve ser um número inteiro >= 0" }, { status: 400 })
+    }
+    stockQuantity = parsed
+  }
 
   const { data: account } = await ctx.supabase
     .from('accounts')
@@ -66,6 +74,7 @@ export async function POST(request: Request) {
       is_upsell: body.is_upsell === true,
       is_active: body.is_active !== false,
       position: Number.isFinite(Number(body.position)) ? Number(body.position) : 0,
+      stock_quantity: stockQuantity,
     })
     .select()
     .single()

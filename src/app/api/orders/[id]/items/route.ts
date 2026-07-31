@@ -51,7 +51,7 @@ export async function POST(
 
   const { data: order } = await db
     .from("orders")
-    .select("id, status, gateway_payment_id")
+    .select("id, status, gateway_payment_id, contact_id")
     .eq("id", orderId)
     .eq("account_id", ctx.accountId)
     .maybeSingle();
@@ -67,13 +67,33 @@ export async function POST(
 
   const { data: item } = await db
     .from("catalog_items")
-    .select("id, name, price_cents")
+    .select("id, name, price_cents, stock_quantity")
     .eq("id", catalogItemId)
     .eq("account_id", ctx.accountId)
     .eq("is_active", true)
     .maybeSingle();
   if (!item) {
     return NextResponse.json({ error: "Item do catálogo não encontrado" }, { status: 404 });
+  }
+
+  // Atomic, race-safe decrement: only succeeds if there's still enough
+  // stock at the moment of the write. NULL (not tracked) rows are
+  // untouched by the `.eq("stock_quantity", ...)` filter never matching
+  // — handled by the `item.stock_quantity !== null` branch below instead.
+  if (item.stock_quantity !== null) {
+    if (item.stock_quantity < 1) {
+      return NextResponse.json({ error: "Item sem estoque disponível" }, { status: 409 });
+    }
+    const { data: decremented } = await db
+      .from("catalog_items")
+      .update({ stock_quantity: item.stock_quantity - 1 })
+      .eq("id", item.id)
+      .eq("stock_quantity", item.stock_quantity)
+      .select("id")
+      .maybeSingle();
+    if (!decremented) {
+      return NextResponse.json({ error: "Item sem estoque disponível" }, { status: 409 });
+    }
   }
 
   const { data: existingLine } = await db
@@ -101,6 +121,18 @@ export async function POST(
   }
 
   await recomputeOrderTotal(db, orderId);
+
+  const { error: activityError } = await db.rpc("append_activity", {
+    p_account_id: ctx.accountId,
+    p_actor_id: ctx.userId,
+    p_event_type: "order.item_added",
+    p_entity_type: "order",
+    p_entity_id: orderId,
+    p_summary: `1x ${item.name} adicionado`,
+    p_order_id: orderId,
+    p_contact_id: order.contact_id,
+  });
+  if (activityError) console.error("[POST /api/orders/[id]/items] append_activity error:", activityError);
 
   const { data: finalItems } = await db
     .from("order_items")

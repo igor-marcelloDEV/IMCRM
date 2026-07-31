@@ -9,7 +9,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { Package, Plus } from 'lucide-react';
+import { Eye, EyeOff, Package, Plus } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/hooks/use-auth';
 import { formatCurrency } from '@/lib/currency';
@@ -37,7 +37,10 @@ import { OrderDetailSheet } from '@/components/orders/order-detail-sheet';
 interface OrderRow extends Order {
   contactName: string | null;
   itemCount: number;
+  itemsSummary: string;
 }
+
+const HIDE_REVENUE_STORAGE_KEY = 'imcrm.orders.hideRevenue';
 
 function statusVariant(
   status: OrderStatus
@@ -54,6 +57,19 @@ export default function OrdersPage() {
   const [newOrderOpen, setNewOrderOpen] = useState(false);
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
+  const [hideRevenue, setHideRevenue] = useState(false);
+
+  useEffect(() => {
+    setHideRevenue(window.localStorage.getItem(HIDE_REVENUE_STORAGE_KEY) === '1');
+  }, []);
+
+  const toggleHideRevenue = useCallback(() => {
+    setHideRevenue((prev) => {
+      const next = !prev;
+      window.localStorage.setItem(HIDE_REVENUE_STORAGE_KEY, next ? '1' : '0');
+      return next;
+    });
+  }, []);
 
   const load = useCallback(async () => {
     if (!accountId) return;
@@ -91,8 +107,9 @@ export default function OrdersPage() {
       contactsQuery,
       supabase
         .from('order_items')
-        .select('order_id')
-        .in('order_id', orderIds),
+        .select('order_id, name_snapshot, quantity')
+        .in('order_id', orderIds)
+        .order('created_at', { ascending: true }),
     ]);
 
     const nameByContact = new Map(
@@ -100,22 +117,25 @@ export default function OrdersPage() {
         (contacts as Array<{ id: string; name: string | null }> | null) ?? []
       ).map((c) => [c.id, c.name])
     );
-    const itemCountByOrder = new Map<string, number>();
-    for (const it of (items as Array<{ order_id: string }> | null) ?? []) {
-      itemCountByOrder.set(
-        it.order_id,
-        (itemCountByOrder.get(it.order_id) ?? 0) + 1
-      );
+    const itemsByOrder = new Map<string, Array<{ name_snapshot: string; quantity: number }>>();
+    for (const it of (items as Array<{ order_id: string; name_snapshot: string; quantity: number }> | null) ?? []) {
+      const list = itemsByOrder.get(it.order_id) ?? [];
+      list.push({ name_snapshot: it.name_snapshot, quantity: it.quantity });
+      itemsByOrder.set(it.order_id, list);
     }
 
     setOrders(
-      rows.map((o) => ({
-        ...o,
-        contactName: o.contact_id
-          ? (nameByContact.get(o.contact_id) ?? null)
-          : null,
-        itemCount: itemCountByOrder.get(o.id) ?? 0,
-      }))
+      rows.map((o) => {
+        const orderItems = itemsByOrder.get(o.id) ?? [];
+        return {
+          ...o,
+          contactName: o.contact_id
+            ? (nameByContact.get(o.contact_id) ?? null)
+            : null,
+          itemCount: orderItems.length,
+          itemsSummary: orderItems.map((i) => `${i.quantity}x ${i.name_snapshot}`).join(', '),
+        };
+      })
     );
   }, [accountId]);
 
@@ -142,10 +162,21 @@ export default function OrdersPage() {
           <h1 className="text-foreground text-2xl font-bold">{t('title')}</h1>
           <p className="text-muted-foreground mt-1 text-sm">{t('description')}</p>
         </div>
-        <Button onClick={() => setNewOrderOpen(true)} className="shrink-0 gap-1.5">
-          <Plus className="h-4 w-4" />
-          {t('newOrder.button')}
-        </Button>
+        <div className="flex shrink-0 items-center gap-2">
+          <Button
+            variant="outline"
+            onClick={toggleHideRevenue}
+            className="gap-1.5"
+            title={hideRevenue ? t('showRevenue') : t('hideRevenue')}
+          >
+            {hideRevenue ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            {hideRevenue ? t('showRevenue') : t('hideRevenue')}
+          </Button>
+          <Button onClick={() => setNewOrderOpen(true)} className="gap-1.5">
+            <Plus className="h-4 w-4" />
+            {t('newOrder.button')}
+          </Button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
@@ -166,7 +197,7 @@ export default function OrdersPage() {
               <Package className="h-5 w-5" />
             </div>
             <div>
-              <p className="text-foreground text-2xl font-bold">
+              <p className={`text-foreground text-2xl font-bold ${hideRevenue ? 'blur-sm select-none' : ''}`}>
                 {formatCurrency(paidTotalCents / 100, 'BRL')}
               </p>
               <p className="text-muted-foreground text-xs">{t('paidTotal')}</p>
@@ -203,6 +234,7 @@ export default function OrdersPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead>{t('colNumber')}</TableHead>
                     <TableHead>{t('colContact')}</TableHead>
                     <TableHead>{t('colItems')}</TableHead>
                     <TableHead>{t('colTotal')}</TableHead>
@@ -218,13 +250,16 @@ export default function OrdersPage() {
                       onClick={() => openOrder(o.id)}
                       className="cursor-pointer hover:bg-muted/50"
                     >
+                      <TableCell className="text-muted-foreground font-mono text-xs">
+                        #{o.order_number}
+                      </TableCell>
                       <TableCell className="text-foreground font-medium">
                         {o.contactName ?? t('unknownContact')}
                       </TableCell>
-                      <TableCell className="text-muted-foreground">
-                        {t('itemCount', { count: o.itemCount })}
+                      <TableCell className="max-w-64 truncate text-muted-foreground" title={o.itemsSummary}>
+                        {o.itemsSummary || t('itemCount', { count: o.itemCount })}
                       </TableCell>
-                      <TableCell>
+                      <TableCell className={hideRevenue ? 'blur-sm select-none' : undefined}>
                         {formatCurrency(o.total_cents / 100, o.currency)}
                       </TableCell>
                       <TableCell>
