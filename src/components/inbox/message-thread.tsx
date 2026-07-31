@@ -28,6 +28,7 @@ import {
   PanelRightOpen,
   PanelRightClose,
   ListTodo,
+  Loader2,
 } from "lucide-react";
 import { format, isToday, isYesterday, differenceInHours } from "date-fns";
 import { useTranslations } from "next-intl";
@@ -191,6 +192,8 @@ export function MessageThread({
   const [isRefreshing, setIsRefreshing] = useState(false);
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [taskDialogOpen, setTaskDialogOpen] = useState(false);
+  const [taskSummary, setTaskSummary] = useState<string | null>(null);
+  const [analyzingTask, setAnalyzingTask] = useState(false);
   const taskResources = useTaskResources();
   useEffect(() => {
     return () => {
@@ -880,9 +883,36 @@ export function MessageThread({
     .find((m) => m.sender_type === "customer" && m.content_text)?.content_text;
   const taskInitial: Partial<TaskDraft> = {
     title: t("newTaskTitle", { name: displayName }),
-    description: lastCustomerMessage ?? null,
+    description: taskSummary ?? lastCustomerMessage ?? null,
     conversation_id: conversation.id,
   };
+
+  // AI reads the conversation and writes "what needs to be done with
+  // this customer" as the task description, instead of just pasting
+  // the customer's last raw message — a real analysis, not a copy.
+  // Best-effort: if AI isn't configured or the call fails, the dialog
+  // still opens with the raw-message fallback rather than blocking
+  // task creation on it.
+  async function openTaskDialog() {
+    setTaskSummary(null);
+    setAnalyzingTask(true);
+    try {
+      const res = await fetch("/api/ai/task-summary", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ conversation_id: taskInitial.conversation_id }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && typeof data.summary === "string") {
+        setTaskSummary(data.summary);
+      }
+    } catch {
+      // swallow — falls back to lastCustomerMessage below
+    } finally {
+      setAnalyzingTask(false);
+      setTaskDialogOpen(true);
+    }
+  }
 
   async function handleCreateTask(draft: TaskDraft) {
     // draft.conversation_id is already set — TaskEditorDialog builds it
@@ -1078,16 +1108,24 @@ export function MessageThread({
             </DropdownMenuContent>
           </DropdownMenu>
 
-          {/* New task, pre-filled from this conversation — completing it
-              later can jump straight back here via TaskRow's reply link. */}
+          {/* New task, pre-filled from this conversation — AI analyzes it
+              for the description, and completing it later can jump
+              straight back here via TaskRow's reply link. */}
           {contact && conversation && (
             <button
               type="button"
-              onClick={() => setTaskDialogOpen(true)}
-              className="inline-flex h-7 items-center justify-center gap-1 rounded-md px-2 text-xs text-muted-foreground hover:bg-muted"
+              onClick={() => void openTaskDialog()}
+              disabled={analyzingTask}
+              className="inline-flex h-7 items-center justify-center gap-1 rounded-md px-2 text-xs text-muted-foreground hover:bg-muted disabled:opacity-60"
             >
-              <ListTodo className="h-3 w-3" />
-              <span className="hidden sm:inline">{t("newTask")}</span>
+              {analyzingTask ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <ListTodo className="h-3 w-3" />
+              )}
+              <span className="hidden sm:inline">
+                {analyzingTask ? t("newTaskAnalyzing") : t("newTask")}
+              </span>
             </button>
           )}
         </div>

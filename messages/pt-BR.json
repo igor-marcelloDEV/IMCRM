@@ -292,6 +292,7 @@
       "assigned": "Atribuído",
       "unassign": "Remover atribuição",
       "newTask": "Nova tarefa",
+      "newTaskAnalyzing": "Analisando...",
       "newTaskTitle": "Retornar para {name}",
       "newTaskCreated": "Tarefa criada.",
       "noTeammates": "Nenhum colega de equipe disponível",

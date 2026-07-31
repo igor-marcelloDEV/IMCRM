@@ -292,6 +292,7 @@
       "assigned": "Assigned",
       "unassign": "Unassign",
       "newTask": "New task",
+      "newTaskAnalyzing": "Analyzing...",
       "newTaskTitle": "Follow up with {name}",
       "newTaskCreated": "Task created.",
       "noTeammates": "No teammates available",
