@@ -62,6 +62,13 @@ export interface Account {
   legal_name: string | null;
   cnpj: string | null;
   store_slug: string | null;
+  store_address: string | null;
+  store_lat: number | null;
+  store_lng: number | null;
+  /** "Bot" toggle — auto-WhatsApp available drivers when a delivery order
+   *  becomes ready (migration 081). */
+  driver_notify_auto_enabled: boolean;
+  driver_message_template: string | null;
   /** auth.users.id of the immutable owner. */
   owner_user_id: string;
   /**
@@ -826,6 +833,20 @@ export type OrderStatus = 'pending_payment' | 'paid' | 'canceled';
 
 export type OrderSource = 'whatsapp_checkout' | 'manual' | 'public_store';
 
+/** Operational delivery workflow, independent of `OrderStatus` (payment).
+ *  Migration 071. */
+export type OrderFulfillmentStatus =
+  | 'awaiting_payment'
+  | 'confirmed'
+  | 'preparing'
+  | 'ready'
+  | 'out_for_delivery'
+  | 'delivered';
+
+/** Migration 081 — null on rows created before pickup/delivery became
+ *  an explicit choice (backfilled from whether a driver/code was present). */
+export type OrderFulfillmentType = 'pickup' | 'delivery';
+
 export interface Order {
   id: string;
   account_id: string;
@@ -852,6 +873,68 @@ export interface Order {
   created_at: string;
   updated_at: string;
   paid_at: string | null;
+  // -- Fulfillment / delivery (migrations 071, 080, 081) --
+  fulfillment_status: OrderFulfillmentStatus;
+  fulfillment_updated_at: string;
+  fulfillment_type: OrderFulfillmentType | null;
+  assigned_driver_id: string | null;
+  delivery_code_hash: string | null;
+  delivery_code_last4: string | null;
+  delivery_assigned_at: string | null;
+  delivery_picked_up_at: string | null;
+  delivery_completed_at: string | null;
+  delivery_address_line: string | null;
+  delivery_number: string | null;
+  delivery_complement: string | null;
+  delivery_neighborhood: string | null;
+  delivery_city: string | null;
+  delivery_state: string | null;
+  delivery_zip: string | null;
+  delivery_lat: number | null;
+  delivery_lng: number | null;
+  delivery_fee_cents: number;
+  driver_agreed_pickup_at: string | null;
+}
+
+export interface DeliveryDriver {
+  id: string;
+  account_id: string;
+  auth_user_id: string | null;
+  name: string;
+  email: string;
+  phone: string;
+  vehicle_type: 'motorcycle' | 'car' | 'bicycle' | 'other';
+  vehicle_plate: string | null;
+  status: 'pending_review' | 'invited' | 'active' | 'inactive';
+  is_available: boolean;
+  pix_key: string | null;
+  document_number: string | null;
+  document_photo_url: string | null;
+  vehicle_photo_url: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DeliveryPayout {
+  id: string;
+  account_id: string;
+  driver_id: string;
+  order_id: string;
+  amount_cents: number;
+  status: 'pending' | 'paid';
+  paid_at: string | null;
+  created_at: string;
+}
+
+export interface DeliveryTimeSlot {
+  id: string;
+  account_id: string;
+  label: string;
+  /** "HH:MM:SS", as returned by Postgres `time`. */
+  start_time: string;
+  is_active: boolean;
+  position: number;
+  created_at: string;
 }
 
 export interface OrderItem {

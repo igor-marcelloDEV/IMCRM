@@ -78,7 +78,22 @@ export default function PublicStorePage() {
   const [cart, setCart] = useState<Record<string, number>>({});
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [form, setForm] = useState({ name: '', phone: '', email: '', cpf_cnpj: '', delivery_address: '' });
+  const [form, setForm] = useState({
+    name: '',
+    phone: '',
+    email: '',
+    cpf_cnpj: '',
+    delivery_address_line: '',
+    delivery_number: '',
+    delivery_complement: '',
+    delivery_neighborhood: '',
+    delivery_city: '',
+    delivery_state: '',
+    delivery_zip: '',
+  });
+  const [fulfillmentType, setFulfillmentType] = useState<'pickup' | 'delivery'>('delivery');
+  const [geo, setGeo] = useState<{ lat: number; lng: number } | null>(null);
+  const [locating, setLocating] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<'pix' | 'card'>('pix');
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState<'featured' | 'lowest' | 'highest'>('featured');
@@ -132,18 +147,44 @@ export default function PublicStorePage() {
   const totalCents = cartLines.reduce((sum, l) => sum + l.item.price_cents * l.qty, 0);
   const totalCount = cartLines.reduce((sum, l) => sum + l.qty, 0);
   const currency = items[0]?.currency ?? 'BRL';
+  const requiresDeliveryChoice = cartLines.some((line) => line.item.offer_type === 'physical_product');
   const checkoutReady = useMemo(() => {
     const phoneDigits = form.phone.replace(/\D/g, '');
     const taxDigits = form.cpf_cnpj.replace(/\D/g, '');
-    const requiresAddress = cartLines.some((line) => line.item.offer_type === 'physical_product');
+    const needsAddress = requiresDeliveryChoice && fulfillmentType === 'delivery';
     return (
       form.name.trim().length > 1 &&
       phoneDigits.length >= 10 &&
       phoneDigits.length <= 13 &&
       /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim()) &&
-      (taxDigits.length === 11 || taxDigits.length === 14) && (!requiresAddress || form.delivery_address.trim().length >= 10)
+      (taxDigits.length === 11 || taxDigits.length === 14) &&
+      (!needsAddress ||
+        (form.delivery_address_line.trim().length >= 3 &&
+          form.delivery_number.trim().length >= 1 &&
+          form.delivery_neighborhood.trim().length >= 2 &&
+          form.delivery_city.trim().length >= 2))
     );
-  }, [cartLines, form]);
+  }, [fulfillmentType, form, requiresDeliveryChoice]);
+
+  const requestGeolocation = useCallback(() => {
+    if (!navigator.geolocation) {
+      toast.error(t('geolocationUnsupported'));
+      return;
+    }
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setGeo({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        setLocating(false);
+        toast.success(t('geolocationSuccess'));
+      },
+      () => {
+        setLocating(false);
+        toast.error(t('geolocationDenied'));
+      },
+      { enableHighAccuracy: true, timeout: 10000 },
+    );
+  }, [t]);
 
   const submitCheckout = useCallback(async () => {
     if (!accountId) return;
@@ -160,6 +201,9 @@ export default function PublicStorePage() {
           items: cartLines.map((l) => ({ catalog_item_id: l.item.id, quantity: l.qty })),
           customer: form,
           payment_method: paymentMethod,
+          fulfillment_type: requiresDeliveryChoice ? fulfillmentType : null,
+          delivery_lat: geo?.lat ?? null,
+          delivery_lng: geo?.lng ?? null,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -177,7 +221,7 @@ export default function PublicStorePage() {
     } finally {
       setSubmitting(false);
     }
-  }, [accountId, cartLines, checkoutReady, form, paymentMethod, router, t]);
+  }, [accountId, cartLines, checkoutReady, form, fulfillmentType, geo, paymentMethod, requiresDeliveryChoice, router, t]);
 
   const lookupOrders = useCallback(async () => {
     if (!accountId || !orderIdentifier.trim()) return;
@@ -425,7 +469,56 @@ export default function PublicStorePage() {
               />
               <p className="mt-1 text-[11px] text-muted-foreground">{t('cpfHint')}</p>
             </div>
-            {cartLines.some((line) => line.item.offer_type === 'physical_product') && <div><label className="mb-1 block text-xs text-muted-foreground">Endereço completo para entrega *</label><Input value={form.delivery_address} onChange={(e) => setForm({ ...form, delivery_address: e.target.value })} placeholder="Rua, número, bairro, cidade e complemento" required /></div>}
+            {requiresDeliveryChoice && (
+              <div className="space-y-3">
+                <fieldset className="grid grid-cols-2 gap-2">
+                  <legend className="sr-only">{t('fulfillmentTypeLabel')}</legend>
+                  <button
+                    type="button"
+                    onClick={() => setFulfillmentType('delivery')}
+                    className={`flex items-center justify-center gap-2 rounded-lg border p-3 text-sm font-medium ${fulfillmentType === 'delivery' ? 'border-primary bg-primary/5 text-primary' : 'border-border text-muted-foreground'}`}
+                  >
+                    <Truck className="h-4 w-4" />
+                    {t('fulfillmentDelivery')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFulfillmentType('pickup')}
+                    className={`flex items-center justify-center gap-2 rounded-lg border p-3 text-sm font-medium ${fulfillmentType === 'pickup' ? 'border-primary bg-primary/5 text-primary' : 'border-border text-muted-foreground'}`}
+                  >
+                    <Store className="h-4 w-4" />
+                    {t('fulfillmentPickup')}
+                  </button>
+                </fieldset>
+
+                {fulfillmentType === 'delivery' && (
+                  <div className="space-y-2 rounded-lg border border-border p-3">
+                    <div className="grid grid-cols-[1fr_100px] gap-2">
+                      <Input value={form.delivery_address_line} onChange={(e) => setForm({ ...form, delivery_address_line: e.target.value })} placeholder={t('addressStreetPlaceholder')} required />
+                      <Input value={form.delivery_number} onChange={(e) => setForm({ ...form, delivery_number: e.target.value })} placeholder={t('addressNumberPlaceholder')} required />
+                    </div>
+                    <Input value={form.delivery_complement} onChange={(e) => setForm({ ...form, delivery_complement: e.target.value })} placeholder={t('addressComplementPlaceholder')} />
+                    <div className="grid grid-cols-2 gap-2">
+                      <Input value={form.delivery_neighborhood} onChange={(e) => setForm({ ...form, delivery_neighborhood: e.target.value })} placeholder={t('addressNeighborhoodPlaceholder')} required />
+                      <Input value={form.delivery_zip} onChange={(e) => setForm({ ...form, delivery_zip: e.target.value })} placeholder={t('addressZipPlaceholder')} />
+                    </div>
+                    <div className="grid grid-cols-[1fr_80px] gap-2">
+                      <Input value={form.delivery_city} onChange={(e) => setForm({ ...form, delivery_city: e.target.value })} placeholder={t('addressCityPlaceholder')} required />
+                      <Input value={form.delivery_state} onChange={(e) => setForm({ ...form, delivery_state: e.target.value.toUpperCase().slice(0, 2) })} placeholder="UF" />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={requestGeolocation}
+                      disabled={locating}
+                      className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-border p-2 text-xs font-medium text-muted-foreground hover:border-primary hover:text-primary disabled:opacity-60"
+                    >
+                      {locating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Truck className="h-3.5 w-3.5" />}
+                      {geo ? t('geolocationCaptured') : t('geolocationButton')}
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           <fieldset className="space-y-2">

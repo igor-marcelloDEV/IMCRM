@@ -43,6 +43,10 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   themeColor: "#020617",
   colorScheme: "dark light",
+  // `cover` lets fixed/bottom-anchored UI (like the inbox composer)
+  // pad itself out past the iOS home-indicator via env(safe-area-inset-*)
+  // instead of rendering underneath it.
+  viewportFit: "cover",
 };
 
 // Inline boot script — runs before React hydrates so the user's

@@ -9,9 +9,10 @@ import { Card, CardContent } from '@/components/ui/card';
 import { formatCurrency } from '@/lib/currency';
 
 type FulfillmentStatus = 'awaiting_payment' | 'confirmed' | 'preparing' | 'ready' | 'out_for_delivery' | 'delivered';
-interface Row { id: string; order_code: string; contact_id: string | null; fulfillment_status: FulfillmentStatus; fulfillment_updated_at: string; total_cents: number; currency: string; created_at: string }
+interface Row { id: string; order_code: string; contact_id: string | null; fulfillment_status: FulfillmentStatus; fulfillment_updated_at: string; total_cents: number; currency: string; created_at: string; fulfillment_type: 'pickup' | 'delivery' | null; assigned_driver_id: string | null; delivery_neighborhood: string | null; delivery_city: string | null }
 interface Item { order_id: string; name_snapshot: string; quantity: number }
 interface Contact { id: string; name: string | null; phone: string }
+interface DriverRef { id: string; name: string }
 const HIDE_VALUES_KEY = 'imcrm.fulfillment.hideValues';
 const columns: Array<{ status: FulfillmentStatus; label: string; icon: typeof CheckCircle2; next?: FulfillmentStatus; action?: string; empty: string }> = [
   { status: 'awaiting_payment', label: 'Aguardando pagamento', icon: WalletCards, empty: 'Nenhuma cobrança pendente.' },
@@ -30,17 +31,21 @@ export default function FulfillmentPage() {
   const [rows, setRows] = useState<Row[] | null>(null);
   const [items, setItems] = useState<Item[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
+  const [drivers, setDrivers] = useState<DriverRef[]>([]);
   const [saving, setSaving] = useState<string | null>(null);
   const [hideValues, setHideValues] = useState(false);
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => setHideValues(localStorage.getItem(HIDE_VALUES_KEY) === '1'), []);
   const toggleValues = () => setHideValues((current) => { const next = !current; localStorage.setItem(HIDE_VALUES_KEY, next ? '1' : '0'); return next; });
   const load = useCallback(async () => {
     const response = await fetch('/api/fulfillment', { cache: 'no-store' });
     if (!response.ok) { toast.error('Não foi possível carregar as entregas.'); return; }
-    const data = await response.json(); setRows(data.orders); setItems(data.items); setContacts(data.contacts);
+    const data = await response.json(); setRows(data.orders); setItems(data.items); setContacts(data.contacts); setDrivers(data.drivers ?? []);
   }, []);
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void load(); }, [load]);
   const contactMap = useMemo(() => new Map(contacts.map((contact) => [contact.id, contact])), [contacts]);
+  const driverMap = useMemo(() => new Map(drivers.map((driver) => [driver.id, driver])), [drivers]);
   const itemMap = useMemo(() => { const map = new Map<string, Item[]>(); items.forEach((item) => map.set(item.order_id, [...(map.get(item.order_id) ?? []), item])); return map; }, [items]);
   const summary = useMemo(() => {
     const all = rows ?? []; const active = all.filter((row) => !['awaiting_payment', 'delivered'].includes(row.fulfillment_status));
@@ -84,8 +89,15 @@ export default function FulfillmentPage() {
         {columns.map((column) => { const Icon = column.icon; const matches = rows.filter((row) => row.fulfillment_status === column.status); const columnValue = matches.reduce((sum, row) => sum + row.total_cents, 0); const oldest = Math.max(0, ...matches.map((row) => ageHours(row.fulfillment_updated_at))); return <section key={column.status} className="min-w-0 space-y-3 rounded-xl border border-border bg-muted/20 p-3">
           <div><div className="flex items-center gap-2 text-sm font-semibold text-foreground"><Icon className="h-4 w-4 text-primary" />{column.label}<span className="ml-auto rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">{matches.length}</span></div><div className="mt-2 flex justify-between text-[11px] text-muted-foreground"><span className={hideValues ? 'blur-sm select-none' : ''}>{formatCurrency(columnValue / 100, 'BRL')}</span>{matches.length > 0 && <span>Mais antigo: {ageLabel(oldest)}</span>}</div></div>
           {matches.length === 0 && <div className="rounded-lg border border-dashed border-border px-3 py-8 text-center text-xs text-muted-foreground">{column.empty}</div>}
-          {matches.map((order) => { const contact = order.contact_id ? contactMap.get(order.contact_id) : null; const age = ageHours(order.fulfillment_updated_at); return <Card key={order.id} onClick={() => router.push(`/orders?order=${order.id}`)} className={`cursor-pointer transition hover:-translate-y-0.5 hover:border-primary/50 hover:shadow-md ${age >= 24 && !['awaiting_payment', 'delivered'].includes(order.fulfillment_status) ? 'border-amber-500/40' : ''}`}><CardContent className="space-y-3 p-4">
+          {matches.map((order) => { const contact = order.contact_id ? contactMap.get(order.contact_id) : null; const driver = order.assigned_driver_id ? driverMap.get(order.assigned_driver_id) : null; const age = ageHours(order.fulfillment_updated_at); return <Card key={order.id} onClick={() => router.push(`/orders?order=${order.id}`)} className={`cursor-pointer transition hover:-translate-y-0.5 hover:border-primary/50 hover:shadow-md ${age >= 24 && !['awaiting_payment', 'delivered'].includes(order.fulfillment_status) ? 'border-amber-500/40' : ''}`}><CardContent className="space-y-3 p-4">
             <div className="flex items-start justify-between gap-2"><div><p className="font-semibold text-foreground">Pedido #{order.order_code}</p><p className="text-xs text-muted-foreground">{contact?.name ?? 'Cliente'} · {contact?.phone ?? ''}</p></div><span className={`shrink-0 text-[10px] ${age >= 24 ? 'text-amber-400' : 'text-muted-foreground'}`}><Clock3 className="mr-1 inline h-3 w-3" />{ageLabel(age)}</span></div>
+            {order.fulfillment_type === 'delivery' && (
+              <div className="flex items-center gap-1.5 rounded-md bg-blue-500/10 px-2 py-1 text-[11px] text-blue-400">
+                <Truck className="h-3 w-3 shrink-0" />
+                {driver ? <span>{driver.name}</span> : <span>Aguardando entregador</span>}
+                {(order.delivery_neighborhood || order.delivery_city) && <span className="truncate text-blue-400/70">· {[order.delivery_neighborhood, order.delivery_city].filter(Boolean).join(', ')}</span>}
+              </div>
+            )}
             <ul className="space-y-1 text-xs text-foreground">{(itemMap.get(order.id) ?? []).map((item, index) => <li key={index}>{item.quantity}x {item.name_snapshot}</li>)}</ul>
             <p className={`border-t border-border pt-2 text-sm font-semibold ${hideValues ? 'blur-sm select-none' : ''}`}>{formatCurrency(order.total_cents / 100, order.currency)}</p>
             {column.next && <Button size="sm" className="w-full" disabled={saving === order.id} onClick={(event) => { event.stopPropagation(); void advance(order.id, column.next!); }}>{saving === order.id && <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />}{column.action}</Button>}

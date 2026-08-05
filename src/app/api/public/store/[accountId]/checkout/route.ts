@@ -90,7 +90,24 @@ export async function POST(
   const name = typeof customer.name === "string" ? customer.name.trim().slice(0, 200) : "";
   const phoneDigits = normalizePhone(typeof customer.phone === "string" ? customer.phone : "");
   const email = typeof customer.email === "string" ? customer.email.trim().slice(0, 200) : "";
-  const deliveryAddress = typeof customer.delivery_address === 'string' ? customer.delivery_address.trim().slice(0, 500) : '';
+
+  const fulfillmentType = body.fulfillment_type === "pickup" ? "pickup" : body.fulfillment_type === "delivery" ? "delivery" : null;
+  const str = (v: unknown, max = 200) => (typeof v === "string" ? v.trim().slice(0, max) : "");
+  const deliveryAddressLine = str(customer.delivery_address_line, 200);
+  const deliveryNumber = str(customer.delivery_number, 20);
+  const deliveryComplement = str(customer.delivery_complement, 100);
+  const deliveryNeighborhood = str(customer.delivery_neighborhood, 100);
+  const deliveryCity = str(customer.delivery_city, 100);
+  const deliveryState = str(customer.delivery_state, 2).toUpperCase();
+  const deliveryZip = str(customer.delivery_zip, 12);
+  const deliveryLat = typeof body.delivery_lat === "number" ? body.delivery_lat : null;
+  const deliveryLng = typeof body.delivery_lng === "number" ? body.delivery_lng : null;
+  // Legacy free-text mirror kept on `contacts` for the driver app's
+  // existing address display — structured fields above are the source
+  // of truth on the order itself.
+  const deliveryAddress = [deliveryAddressLine && `${deliveryAddressLine}, ${deliveryNumber}`, deliveryComplement, deliveryNeighborhood, deliveryCity && deliveryState ? `${deliveryCity}/${deliveryState}` : deliveryCity]
+    .filter(Boolean)
+    .join(" - ");
   if (!name) {
     return NextResponse.json({ error: "Informe seu nome" }, { status: 400 });
   }
@@ -119,7 +136,12 @@ export async function POST(
   const { data: selectedCatalogItems } = await db.from('catalog_items').select('id, offer_type, billing_cycle').eq('account_id', resolvedAccountId).in('id', items.map((item) => item.catalog_item_id));
   const subscriptionItems = (selectedCatalogItems ?? []).filter((item) => item.offer_type === 'subscription');
   const hasPhysicalProduct = (selectedCatalogItems ?? []).some((item) => item.offer_type === 'physical_product');
-  if (hasPhysicalProduct && deliveryAddress.length < 10) return NextResponse.json({ error: 'Informe o endereço completo para entrega.' }, { status: 400 });
+  if (hasPhysicalProduct && !fulfillmentType) {
+    return NextResponse.json({ error: 'Escolha entrega ou retirada na loja.' }, { status: 400 });
+  }
+  if (hasPhysicalProduct && fulfillmentType === 'delivery' && (!deliveryAddressLine || !deliveryNumber || !deliveryNeighborhood || !deliveryCity)) {
+    return NextResponse.json({ error: 'Informe o endereço completo para entrega.' }, { status: 400 });
+  }
   if (subscriptionItems.length > 0 && (items.length !== 1 || items[0].quantity !== 1)) {
     return NextResponse.json({ error: 'Planos por assinatura devem ser contratados separadamente, uma unidade por vez.' }, { status: 400 });
   }
@@ -163,6 +185,28 @@ export async function POST(
   }
 
   const order = rpcResult as { order_id: string; deal_id: string; total_cents: number; currency: string };
+
+  if (fulfillmentType) {
+    await db
+      .from('orders')
+      .update({
+        fulfillment_type: fulfillmentType,
+        ...(fulfillmentType === 'delivery'
+          ? {
+              delivery_address_line: deliveryAddressLine || null,
+              delivery_number: deliveryNumber || null,
+              delivery_complement: deliveryComplement || null,
+              delivery_neighborhood: deliveryNeighborhood || null,
+              delivery_city: deliveryCity || null,
+              delivery_state: deliveryState || null,
+              delivery_zip: deliveryZip || null,
+              delivery_lat: deliveryLat,
+              delivery_lng: deliveryLng,
+            }
+          : {}),
+      })
+      .eq('id', order.order_id);
+  }
 
   if (subscriptionItems.length === 1) {
     try {

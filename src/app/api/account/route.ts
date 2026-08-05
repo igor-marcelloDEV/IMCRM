@@ -54,7 +54,17 @@ export async function PATCH(request: Request) {
     if (!limit.success) return rateLimitResponse(limit);
 
     const body = (await request.json().catch(() => null)) as
-      | { name?: unknown; logo_url?: unknown; legal_name?: unknown; cnpj?: unknown }
+      | {
+          name?: unknown;
+          logo_url?: unknown;
+          legal_name?: unknown;
+          cnpj?: unknown;
+          store_address?: unknown;
+          store_lat?: unknown;
+          store_lng?: unknown;
+          driver_notify_auto_enabled?: unknown;
+          driver_message_template?: unknown;
+        }
       | null;
     if (!body || typeof body !== "object") {
       return NextResponse.json({ error: "Corpo da requisição inválido" }, { status: 400 });
@@ -123,6 +133,38 @@ export async function PATCH(request: Request) {
       }
     }
 
+    if ("store_address" in body) {
+      if (body.store_address !== null && typeof body.store_address !== "string") {
+        return NextResponse.json({ error: "O campo 'store_address' deve ser uma string ou null" }, { status: 400 });
+      }
+      update.store_address = typeof body.store_address === "string" ? body.store_address.trim() || null : null;
+    }
+
+    if ("store_lat" in body || "store_lng" in body) {
+      const lat = typeof body.store_lat === "number" ? body.store_lat : null;
+      const lng = typeof body.store_lng === "number" ? body.store_lng : null;
+      if ((lat === null) !== (lng === null)) {
+        return NextResponse.json({ error: "Informe latitude e longitude juntas" }, { status: 400 });
+      }
+      update.store_lat = lat;
+      update.store_lng = lng;
+    }
+
+    if ("driver_notify_auto_enabled" in body) {
+      if (typeof body.driver_notify_auto_enabled !== "boolean") {
+        return NextResponse.json({ error: "O campo 'driver_notify_auto_enabled' deve ser booleano" }, { status: 400 });
+      }
+      update.driver_notify_auto_enabled = body.driver_notify_auto_enabled;
+    }
+
+    if ("driver_message_template" in body) {
+      if (body.driver_message_template !== null && typeof body.driver_message_template !== "string") {
+        return NextResponse.json({ error: "O campo 'driver_message_template' deve ser uma string ou null" }, { status: 400 });
+      }
+      update.driver_message_template =
+        typeof body.driver_message_template === "string" ? body.driver_message_template.trim() || null : null;
+    }
+
     if (Object.keys(update).length === 0) {
       return NextResponse.json({ error: "Nada para atualizar" }, { status: 400 });
     }
@@ -134,7 +176,9 @@ export async function PATCH(request: Request) {
       .from("accounts")
       .update(update)
       .eq("id", ctx.accountId)
-      .select("id, name, logo_url, legal_name, cnpj")
+      .select(
+        "id, name, logo_url, legal_name, cnpj, store_address, store_lat, store_lng, driver_notify_auto_enabled, driver_message_template",
+      )
       .single();
 
     if (error) {

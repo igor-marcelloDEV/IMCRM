@@ -167,7 +167,9 @@ export async function getCurrentAccount(): Promise<AccountContext> {
   // RLS, so it stays robust against cache staleness and older schemas.
   const { data: account, error: accountErr } = await supabase
     .from("accounts")
-    .select("id, name, logo_url, legal_name, cnpj, store_slug")
+    .select(
+      "id, name, logo_url, legal_name, cnpj, store_slug, store_address, store_lat, store_lng, driver_notify_auto_enabled, driver_message_template",
+    )
     .eq("id", data.account_id)
     .maybeSingle();
 
