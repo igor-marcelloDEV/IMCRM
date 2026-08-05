@@ -46,7 +46,7 @@ function inMemoryRepository(options?: {
 describe("trial claim", () => {
   it("keeps preview read-only", async () => {
     const repository = inMemoryRepository();
-    await expect(previewTrialClaim(repository, TOKEN)).resolves.toBe(
+    await expect(previewTrialClaim(repository, TOKEN, NOW)).resolves.toBe(
       "claimable",
     );
     expect(repository.insertCount).toBe(0);

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from "@/lib/rate-limit";
 import { supabaseAdmin } from "@/lib/automations/admin-client";
 import { findOrCreateContact } from "@/lib/whatsapp/inbound";
 import { addContactTagIfAbsent } from "@/lib/contacts/tag-write";
@@ -69,6 +70,11 @@ export async function POST(
   { params }: { params: Promise<{ accountId: string }> },
 ) {
   const { accountId } = await params;
+
+  const forwarded = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+  const limit = checkRateLimit(`store-checkout:${forwarded}:${accountId}`, RATE_LIMITS.publicCheckout);
+  if (!limit.success) return rateLimitResponse(limit);
+
   const body = await request.json().catch(() => null);
   if (!body || typeof body !== "object") {
     return NextResponse.json({ error: "JSON inválido" }, { status: 400 });

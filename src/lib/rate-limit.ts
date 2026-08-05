@@ -167,6 +167,14 @@ export const RATE_LIMITS = {
    *  capping a stampede; excess inbounds simply don't get an auto-reply
    *  (they still land in the inbox for a human). */
   aiAutoReplyAccount: { limit: 30, windowMs: 60_000 },
+  /** Public storefront checkout (`/loja/[accountId]`), per-IP+account.
+   *  Unauthenticated by design — anyone can hit it — and each call
+   *  writes a contact/tag/order row and can call out to the payment
+   *  gateway (Asaas customer + subscription/charge creation). 10/min
+   *  covers a real shopper retrying a declined card a few times while
+   *  bounding a script from flooding the seller's pipeline or running
+   *  up gateway API calls. */
+  publicCheckout: { limit: 10, windowMs: 60_000 },
 } as const;
 
 /** Test-only helper. Clears the in-memory state so unit tests don't
