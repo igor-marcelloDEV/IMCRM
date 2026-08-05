@@ -23,6 +23,7 @@ import {
   rateLimitResponse,
   RATE_LIMITS,
 } from "@/lib/rate-limit";
+import { validateBrazilianTaxId } from "@/lib/brazilian-tax-id";
 
 export async function GET() {
   try {
@@ -53,7 +54,7 @@ export async function PATCH(request: Request) {
     if (!limit.success) return rateLimitResponse(limit);
 
     const body = (await request.json().catch(() => null)) as
-      | { name?: unknown; logo_url?: unknown }
+      | { name?: unknown; logo_url?: unknown; legal_name?: unknown; cnpj?: unknown }
       | null;
     if (!body || typeof body !== "object") {
       return NextResponse.json({ error: "Corpo da requisição inválido" }, { status: 400 });
@@ -97,6 +98,31 @@ export async function PATCH(request: Request) {
       update.logo_url = body.logo_url;
     }
 
+    if ("legal_name" in body) {
+      if (body.legal_name !== null && typeof body.legal_name !== "string") {
+        return NextResponse.json({ error: "O campo 'legal_name' deve ser uma string ou null" }, { status: 400 });
+      }
+      const legalName = typeof body.legal_name === "string" ? body.legal_name.trim() : null;
+      if (legalName && legalName.length > 160) {
+        return NextResponse.json({ error: "A razão social deve ter no máximo 160 caracteres" }, { status: 400 });
+      }
+      update.legal_name = legalName || null;
+    }
+
+    if ("cnpj" in body) {
+      if (body.cnpj !== null && typeof body.cnpj !== "string") {
+        return NextResponse.json({ error: "O campo 'cnpj' deve ser uma string ou null" }, { status: 400 });
+      }
+      if (body.cnpj === null || body.cnpj.trim() === "") update.cnpj = null;
+      else {
+        const taxId = validateBrazilianTaxId(body.cnpj);
+        if (!taxId || taxId.type !== "cnpj") {
+          return NextResponse.json({ error: "Informe um CNPJ válido" }, { status: 400 });
+        }
+        update.cnpj = taxId.normalized;
+      }
+    }
+
     if (Object.keys(update).length === 0) {
       return NextResponse.json({ error: "Nada para atualizar" }, { status: 400 });
     }
@@ -108,7 +134,7 @@ export async function PATCH(request: Request) {
       .from("accounts")
       .update(update)
       .eq("id", ctx.accountId)
-      .select("id, name, logo_url")
+      .select("id, name, logo_url, legal_name, cnpj")
       .single();
 
     if (error) {

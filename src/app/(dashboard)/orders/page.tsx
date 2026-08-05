@@ -9,7 +9,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { Eye, EyeOff, Package, Plus } from 'lucide-react';
+import { AlertTriangle, CircleDollarSign, Eye, EyeOff, Lightbulb, Package, Plus, UserRoundX } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/hooks/use-auth';
 import { formatCurrency } from '@/lib/currency';
@@ -38,6 +38,8 @@ interface OrderRow extends Order {
   contactName: string | null;
   itemCount: number;
   itemsSummary: string;
+  pipelineName: string | null;
+  stageName: string | null;
 }
 
 const HIDE_REVENUE_STORAGE_KEY = 'imcrm.orders.hideRevenue';
@@ -98,18 +100,22 @@ export default function OrdersPage() {
       ),
     ];
     const orderIds = rows.map((o) => o.id);
+    const dealIds = rows.map((o) => o.deal_id).filter((id): id is string => !!id);
     const contactsQuery = contactIds.length
       ? supabase.from('contacts').select('id, name').in('id', contactIds)
       : Promise.resolve({
           data: [] as Array<{ id: string; name: string | null }>,
         });
-    const [{ data: contacts }, { data: items }] = await Promise.all([
+    const [{ data: contacts }, { data: items }, { data: deals }] = await Promise.all([
       contactsQuery,
       supabase
         .from('order_items')
         .select('order_id, name_snapshot, quantity')
         .in('order_id', orderIds)
         .order('created_at', { ascending: true }),
+      dealIds.length
+        ? supabase.from('deals').select('id, pipeline:pipelines(name), stage:pipeline_stages(name)').in('id', dealIds)
+        : Promise.resolve({ data: [] }),
     ]);
 
     const nameByContact = new Map(
@@ -123,10 +129,15 @@ export default function OrdersPage() {
       list.push({ name_snapshot: it.name_snapshot, quantity: it.quantity });
       itemsByOrder.set(it.order_id, list);
     }
+    const dealById = new Map(
+      ((deals as Array<{ id: string; pipeline: { name: string } | null; stage: { name: string } | null }> | null) ?? [])
+        .map((deal) => [deal.id, deal]),
+    );
 
     setOrders(
       rows.map((o) => {
         const orderItems = itemsByOrder.get(o.id) ?? [];
+        const deal = o.deal_id ? dealById.get(o.deal_id) : null;
         return {
           ...o,
           contactName: o.contact_id
@@ -134,6 +145,8 @@ export default function OrdersPage() {
             : null,
           itemCount: orderItems.length,
           itemsSummary: orderItems.map((i) => `${i.quantity}x ${i.name_snapshot}`).join(', '),
+          pipelineName: deal?.pipeline?.name ?? null,
+          stageName: deal?.stage?.name ?? null,
         };
       })
     );
@@ -142,6 +155,14 @@ export default function OrdersPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    const orderId = new URLSearchParams(window.location.search).get('order');
+    if (orderId) {
+      setSelectedOrderId(orderId);
+      setDetailOpen(true);
+    }
+  }, []);
 
   function openOrder(id: string) {
     setSelectedOrderId(id);
@@ -154,6 +175,15 @@ export default function OrdersPage() {
       ?.filter((o) => o.status === 'paid')
       .reduce((s, o) => s + o.total_cents, 0) ?? 0;
   const openCount = orders?.filter((o) => o.status === 'pending_payment').length ?? 0;
+  const openTotalCents = orders?.filter((o) => o.status === 'pending_payment').reduce((sum, order) => sum + order.total_cents, 0) ?? 0;
+  const averageTicketCents = paidCount > 0 ? Math.round(paidTotalCents / paidCount) : 0;
+  const missingNameCount = orders?.filter((order) => !order.contactName || /^\+?\d[\d\s().-]+$/.test(order.contactName)).length ?? 0;
+  const missingFunnelCount = orders?.filter((order) => !order.pipelineName || !order.stageName).length ?? 0;
+  const orderInsights = [
+    openCount > 0 ? t('insights.recoverPayments', { count: openCount, value: formatCurrency(openTotalCents / 100, 'BRL') }) : null,
+    missingNameCount > 0 ? t('insights.fixNames', { count: missingNameCount }) : null,
+    missingFunnelCount > 0 ? t('insights.fixFunnel', { count: missingFunnelCount }) : null,
+  ].filter((insight): insight is string => !!insight);
 
   return (
     <div className="space-y-5">
@@ -179,7 +209,7 @@ export default function OrdersPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Card>
           <CardContent className="flex items-center gap-3 pt-6">
             <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-500">
@@ -215,7 +245,21 @@ export default function OrdersPage() {
             </div>
           </CardContent>
         </Card>
+        <Card>
+          <CardContent className="flex items-center gap-3 pt-6">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-violet-500/10 text-violet-400"><CircleDollarSign className="h-5 w-5" /></div>
+            <div><p className={`text-foreground text-2xl font-bold ${hideRevenue ? 'blur-sm select-none' : ''}`}>{formatCurrency(averageTicketCents / 100, 'BRL')}</p><p className="text-muted-foreground text-xs">{t('averageTicket')}</p></div>
+          </CardContent>
+        </Card>
       </div>
+
+      <Card className={orderInsights.length ? 'border-amber-500/20 bg-amber-500/5' : 'border-emerald-500/20 bg-emerald-500/5'}>
+        <CardContent className="flex gap-3 p-4">
+          {orderInsights.length ? <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-400" /> : <Lightbulb className="mt-0.5 h-5 w-5 shrink-0 text-emerald-400" />}
+          <div><p className="text-sm font-semibold text-foreground">{t('insights.title')}</p>{orderInsights.length ? <ul className="mt-2 space-y-1 text-sm text-muted-foreground">{orderInsights.map((insight) => <li key={insight}>• <span className={hideRevenue && insight.includes('R$') ? 'blur-sm select-none' : ''}>{insight}</span></li>)}</ul> : <p className="mt-1 text-sm text-muted-foreground">{t('insights.healthy')}</p>}</div>
+          {(missingNameCount > 0 || missingFunnelCount > 0) && <UserRoundX className="ml-auto h-5 w-5 text-muted-foreground" />}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>
@@ -239,6 +283,8 @@ export default function OrdersPage() {
                     <TableHead>{t('colItems')}</TableHead>
                     <TableHead>{t('colTotal')}</TableHead>
                     <TableHead>{t('colStatus')}</TableHead>
+                    <TableHead>{t('colFunnel')}</TableHead>
+                    <TableHead>{t('colFunnelStage')}</TableHead>
                     <TableHead>{t('colSource')}</TableHead>
                     <TableHead>{t('colDate')}</TableHead>
                   </TableRow>
@@ -251,7 +297,7 @@ export default function OrdersPage() {
                       className="cursor-pointer hover:bg-muted/50"
                     >
                       <TableCell className="text-muted-foreground font-mono text-xs">
-                        #{o.order_number}
+                        #{o.order_code}
                       </TableCell>
                       <TableCell className="text-foreground font-medium">
                         {o.contactName ?? t('unknownContact')}
@@ -267,6 +313,8 @@ export default function OrdersPage() {
                           {t(`status.${o.status}`)}
                         </Badge>
                       </TableCell>
+                      <TableCell className="text-xs text-foreground">{o.pipelineName ?? '—'}</TableCell>
+                      <TableCell><Badge variant="outline">{o.stageName ?? '—'}</Badge></TableCell>
                       <TableCell className="text-muted-foreground text-xs">
                         {o.source === 'manual' ? t('sourceManual') : t('sourceWhatsapp')}
                       </TableCell>

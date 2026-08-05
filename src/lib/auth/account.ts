@@ -102,7 +102,7 @@ export interface AccountContext {
   /** Caller's role within their account. */
   role: AccountRole;
   /** Lightweight account meta — id + name + whitelabel logo. */
-  account: { id: string; name: string; logo_url: string | null };
+  account: { id: string; name: string; logo_url: string | null; legal_name?: string | null; cnpj?: string | null };
 }
 
 export interface EntitledAccountContext extends AccountContext {
@@ -167,7 +167,7 @@ export async function getCurrentAccount(): Promise<AccountContext> {
   // RLS, so it stays robust against cache staleness and older schemas.
   const { data: account, error: accountErr } = await supabase
     .from("accounts")
-    .select("id, name, logo_url")
+    .select("id, name, logo_url, legal_name, cnpj, store_slug")
     .eq("id", data.account_id)
     .maybeSingle();
 
@@ -186,7 +186,7 @@ export async function getCurrentAccount(): Promise<AccountContext> {
     userId: user.id,
     accountId: data.account_id,
     role: data.account_role,
-    account: { id: account.id, name: account.name, logo_url: account.logo_url ?? null },
+    account: { id: account.id, name: account.name, logo_url: account.logo_url ?? null, legal_name: account.legal_name ?? null, cnpj: account.cnpj ?? null },
   };
 }
 

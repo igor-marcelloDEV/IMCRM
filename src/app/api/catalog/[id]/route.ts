@@ -56,6 +56,13 @@ export async function PATCH(
       update.stock_quantity = parsed
     }
   }
+  if ('offer_type' in body) update.offer_type = ['physical_product', 'service', 'subscription'].includes(body.offer_type) ? body.offer_type : 'service'
+  if ('billing_cycle' in body) update.billing_cycle = ['MONTHLY', 'QUARTERLY', 'SEMIANNUALLY', 'YEARLY'].includes(body.billing_cycle) ? body.billing_cycle : null
+  if ('compare_at_price_cents' in body) update.compare_at_price_cents = body.compare_at_price_cents === null || body.compare_at_price_cents === '' ? null : Math.round(Number(body.compare_at_price_cents))
+  if ('trial_days' in body) update.trial_days = Math.min(Math.max(Number(body.trial_days) || 0, 0), 365)
+  for (const field of ['campaign_badge', 'sku', 'ncm', 'cest', 'cfop', 'fiscal_unit'] as const) {
+    if (field in body) update[field] = typeof body[field] === 'string' ? body[field].trim().slice(0, 80) || null : null
+  }
 
   if (Object.keys(update).length === 0) {
     return NextResponse.json({ ok: true })

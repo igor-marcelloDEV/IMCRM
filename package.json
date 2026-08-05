@@ -2,7 +2,7 @@
   "name": "imcrm",
   "version": "0.8.0",
   "private": true,
-  "description": "Self-hostable CRM for WhatsApp — shared inbox, contacts, sales pipelines, broadcasts, and no-code automations.",
+  "description": "CRM brasileiro para organizar atendimentos, clientes, vendas, pagamentos, pedidos e entregas.",
   "license": "MIT",
   "author": "Arnas Donauskas",
   "homepage": "https://github.com/igor-marcelloDEV/IMCRM",

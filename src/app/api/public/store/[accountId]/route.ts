@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/automations/admin-client";
+import { resolvePublicStoreAccount } from "@/lib/store/public-store";
 
 /**
  * GET /api/public/store/[accountId] — unauthenticated storefront read.
@@ -19,24 +20,27 @@ export async function GET(
   const { accountId } = await params;
   const db = supabaseAdmin();
 
-  const { data: account } = await db
-    .from("accounts")
-    .select("id, name, logo_url")
-    .eq("id", accountId)
-    .maybeSingle();
+  const account = await resolvePublicStoreAccount(db, accountId);
   if (!account) {
     return NextResponse.json({ error: "Loja não encontrada" }, { status: 404 });
   }
 
   const { data: items } = await db
     .from("catalog_items")
-    .select("id, name, description, price_cents, currency, media_url, media_type, stock_quantity")
-    .eq("account_id", accountId)
+    .select("id, name, description, price_cents, currency, media_url, media_type, stock_quantity, offer_type, billing_cycle, compare_at_price_cents, trial_days, campaign_badge")
+    .eq("account_id", account.id)
     .eq("is_active", true)
     .order("position", { ascending: true });
 
   return NextResponse.json({
-    account: { id: account.id, name: account.name, logo_url: account.logo_url },
+    account: {
+      id: account.id,
+      name: account.name,
+      legal_name: account.legal_name,
+      cnpj: account.cnpj,
+      logo_url: account.logo_url,
+      store_slug: account.store_slug,
+    },
     catalog_items: items ?? [],
   });
 }

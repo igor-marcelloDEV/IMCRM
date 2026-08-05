@@ -165,13 +165,45 @@ export async function POST(request: Request) {
       )
     }
 
+    const { data: account } = await supabase
+      .from('accounts')
+      .select('active_whatsapp_provider')
+      .eq('id', accountId)
+      .maybeSingle()
+    const isBaileys = account?.active_whatsapp_provider === 'baileys'
+
     try {
-      validateTemplatePayload(payload)
+      validateTemplatePayload(payload, { requireSampleValues: !isBaileys })
     } catch (e) {
       return NextResponse.json(
         { error: e instanceof Error ? e.message : 'Falha na validação.' },
         { status: 400 },
       )
+    }
+
+    // WhatsApp Web has no template registry or approval step. Store the
+    // template locally and let Baileys flatten it to text at send time.
+    if (isBaileys) {
+      const { data: row, error: upsertErr } = await upsertTemplateRow(
+        supabase,
+        buildUpsertRow(accountId, userId, payload, {
+          status: 'DRAFT',
+          metaTemplateId: null,
+          submissionError: null,
+        }),
+      )
+      if (upsertErr) {
+        return NextResponse.json(
+          { error: `Falha ao salvar o modelo local: ${upsertErr.message}` },
+          { status: 500 },
+        )
+      }
+      return NextResponse.json({
+        success: true,
+        template: row,
+        dry_run: false,
+        local_only: true,
+      })
     }
 
     const dryRun =

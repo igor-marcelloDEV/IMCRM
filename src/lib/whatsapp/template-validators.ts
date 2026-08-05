@@ -318,7 +318,10 @@ export function validateSampleValues(
  * field-level message. Returns the variable counts so callers can
  * reuse them when building the Meta components payload.
  */
-export function validateTemplatePayload(payload: TemplatePayload): {
+export function validateTemplatePayload(
+  payload: TemplatePayload,
+  options: { requireSampleValues?: boolean } = {},
+): {
   bodyVarCount: number;
   headerVarCount: number;
 } {
@@ -330,7 +333,12 @@ export function validateTemplatePayload(payload: TemplatePayload): {
   validateFooter(payload.footer_text);
   const headerResult = validateHeader(payload);
   validateButtons(payload.buttons);
-  validateSampleValues(payload, bodyVars.length, headerResult.variableCount);
+  // Sample values exist only for Meta's human-review payload. Providers
+  // such as Baileys render templates locally as plain text, so requiring
+  // review examples there would block a feature the provider can send.
+  if (options.requireSampleValues !== false) {
+    validateSampleValues(payload, bodyVars.length, headerResult.variableCount);
+  }
   return {
     bodyVarCount: bodyVars.length,
     headerVarCount: headerResult.variableCount,

@@ -43,6 +43,20 @@ export async function proxy(request: NextRequest) {
     return response
   }
 
+  const isDriverPublic = request.nextUrl.pathname === '/entregadores/login' || request.nextUrl.pathname === '/entregadores/cadastro'
+  if (!user && request.nextUrl.pathname.startsWith('/entregadores') && !isDriverPublic) {
+    const url = request.nextUrl.clone()
+    url.pathname = '/entregadores/login'
+    url.search = ''
+    return withRefreshedCookies(NextResponse.redirect(url))
+  }
+  if (user && !request.nextUrl.pathname.startsWith('/entregadores') && !request.nextUrl.pathname.startsWith('/api/driver/')) {
+    if (user.user_metadata?.portal === 'driver') {
+      const url = request.nextUrl.clone(); url.pathname = '/entregadores'; url.search = ''
+      return withRefreshedCookies(NextResponse.redirect(url))
+    }
+  }
+
   // Auth pages - redirect to dashboard if already logged in.
   // Exception: when an invite token is in the query string we
   // send the already-signed-in user to /join/<token> instead so
@@ -87,6 +101,8 @@ export async function proxy(request: NextRequest) {
     '/notifications',
     '/agents',
     '/admin',
+    '/drivers',
+    '/execution',
   ]
   if (!user && protectedPaths.some(path => request.nextUrl.pathname.startsWith(path))) {
     const url = request.nextUrl.clone()

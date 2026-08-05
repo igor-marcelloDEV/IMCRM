@@ -129,9 +129,9 @@ export class BaileysWorkerProvider implements WhatsAppProvider {
  * native template system. Substitutes `{{n}}` body variables from
  * `messageParams.body` (falling back to legacy `params`); a TEXT
  * header/footer are prepended/appended verbatim. Media headers and
- * buttons have no plain-text equivalent and are silently dropped —
- * acceptable for v1 since Baileys sends are meant for 1:1 conversation
- * continuity, not marketing-grade rich templates.
+ * buttons have no native equivalent, so quick-reply labels are appended
+ * as a numbered plain-text menu. The contact can answer with a number or
+ * with the option label.
  */
 function flattenTemplateToText(params: SendTemplateParams): string {
   const { template, messageParams, params: legacyParams, templateName } = params;
@@ -153,6 +153,13 @@ function flattenTemplateToText(params: SendTemplateParams): string {
 
   if (template.footer_text) {
     lines.push(template.footer_text);
+  }
+
+  const replyOptions = (template.buttons ?? [])
+    .filter((button) => button.type === 'QUICK_REPLY')
+    .map((button, index) => `${index + 1}. ${button.text}`);
+  if (replyOptions.length > 0) {
+    lines.push(replyOptions.join('\n'));
   }
 
   return lines.filter(Boolean).join('\n\n');

@@ -109,6 +109,7 @@ interface MediaDraft {
 
 interface MessageComposerProps {
   conversationId: string;
+  initialText?: string | null;
   sessionExpired: boolean;
   onSend: (text: string, replyToId?: string) => void;
   onSendMedia: (payload: SendMediaPayload) => void;
@@ -131,6 +132,7 @@ const OPUS_ENCODER_PATH = "/opus/encoderWorker.min.js";
 
 export function MessageComposer({
   conversationId,
+  initialText,
   sessionExpired,
   onSend,
   onSendMedia,
@@ -143,6 +145,7 @@ export function MessageComposer({
   const tCommon = useTranslations("Common");
 
   const [text, setText] = useState("");
+  const appliedInitialTextRef = useRef<string | null>(null);
   const [sending, setSending] = useState(false);
   const [drafting, setDrafting] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -190,6 +193,15 @@ export function MessageComposer({
   const readOnly = !canSend;
   // Media (like free-form text) is only allowed inside the 24h window.
   const inputsDisabled = readOnly || sessionExpired;
+
+  useEffect(() => {
+    if (!initialText) return;
+    const key = `${conversationId}:${initialText}`;
+    if (appliedInitialTextRef.current === key) return;
+    appliedInitialTextRef.current = key;
+    setText(initialText);
+    requestAnimationFrame(() => textareaRef.current?.focus());
+  }, [conversationId, initialText]);
 
   const clearTimer = useCallback(() => {
     if (timerRef.current !== null) {

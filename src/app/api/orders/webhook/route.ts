@@ -269,6 +269,22 @@ export async function POST(request: Request) {
   }
   const transitioned = transitionedData as OrderForPayment;
 
+  const { data: fiscalItems } = await db
+    .from('order_items')
+    .select('total_cents, catalog_items(offer_type)')
+    .eq('order_id', transitioned.id);
+  let serviceTotalCents = 0;
+  let physicalTotalCents = 0;
+  for (const item of fiscalItems ?? []) {
+    const catalog = item.catalog_items as unknown as { offer_type?: string } | null;
+    if (catalog?.offer_type === 'physical_product') physicalTotalCents += item.total_cents;
+    else serviceTotalCents += item.total_cents;
+  }
+  await db.from('orders').update({
+    fiscal_document_type: physicalTotalCents > 0 && serviceTotalCents > 0 ? 'mixed' : physicalTotalCents > 0 ? 'NF-e/NFC-e' : 'NFS-e',
+    merchandise_fiscal_status: physicalTotalCents > 0 ? 'pending_provider_configuration' : null,
+  }).eq('id', transitioned.id);
+
   // Deliberately no automatic Pipeline stage change here — the tenant
   // closes the sale manually by dragging the linked Deal.
   if (transitioned.contact_id) {
@@ -292,7 +308,7 @@ export async function POST(request: Request) {
   }
 
   if (
-    invoiceConfig?.nfe_enabled &&
+    serviceTotalCents > 0 && invoiceConfig?.nfe_enabled &&
     invoiceConfig.municipal_service_id &&
     invoiceConfig.encrypted_asaas_api_key
   ) {
@@ -304,7 +320,7 @@ export async function POST(request: Request) {
           env: invoiceConfig.asaas_env ?? 'sandbox',
         },
         paymentId: payment.id,
-        value: transitioned.total_cents / 100,
+        value: serviceTotalCents / 100,
         municipalServiceId: invoiceConfig.municipal_service_id,
         municipalServiceName: invoiceConfig.municipal_service_name ?? '',
         serviceDescription: 'Pedido via WhatsApp',

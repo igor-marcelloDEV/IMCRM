@@ -51,6 +51,16 @@ interface DraftState {
   is_upsell: boolean;
   is_active: boolean;
   stock: string; // integer, as typed — empty means "not tracked" (unlimited)
+  offer_type: 'physical_product' | 'service' | 'subscription';
+  billing_cycle: 'MONTHLY' | 'QUARTERLY' | 'SEMIANNUALLY' | 'YEARLY';
+  compare_at_price: string;
+  trial_days: string;
+  campaign_badge: string;
+  sku: string;
+  ncm: string;
+  cest: string;
+  cfop: string;
+  fiscal_unit: string;
 }
 
 function emptyDraft(): DraftState {
@@ -63,6 +73,7 @@ function emptyDraft(): DraftState {
     is_upsell: false,
     is_active: true,
     stock: "",
+    offer_type: 'service', billing_cycle: 'MONTHLY', compare_at_price: '', trial_days: '0', campaign_badge: '', sku: '', ncm: '', cest: '', cfop: '', fiscal_unit: 'UN',
   };
 }
 
@@ -77,6 +88,7 @@ function toDraft(item: CatalogItem): DraftState {
     is_upsell: item.is_upsell,
     is_active: item.is_active,
     stock: item.stock_quantity === null ? "" : String(item.stock_quantity),
+    offer_type: item.offer_type ?? 'service', billing_cycle: item.billing_cycle ?? 'MONTHLY', compare_at_price: item.compare_at_price_cents ? (item.compare_at_price_cents / 100).toFixed(2) : '', trial_days: String(item.trial_days ?? 0), campaign_badge: item.campaign_badge ?? '', sku: item.sku ?? '', ncm: item.ncm ?? '', cest: item.cest ?? '', cfop: item.cfop ?? '', fiscal_unit: item.fiscal_unit ?? 'UN',
   };
 }
 
@@ -87,6 +99,7 @@ export function CatalogManager() {
   const [draft, setDraft] = useState<DraftState | null>(null);
   const [saving, setSaving] = useState(false);
   const [accountId, setAccountId] = useState<string | null>(null);
+  const [storeSlug, setStoreSlug] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
   const load = useCallback(async () => {
@@ -107,13 +120,16 @@ export function CatalogManager() {
   useEffect(() => {
     fetch("/api/account", { cache: "no-store" })
       .then((res) => res.json())
-      .then((data) => setAccountId(data?.account?.id ?? null))
+      .then((data) => {
+        setAccountId(data?.account?.id ?? null);
+        setStoreSlug(data?.account?.store_slug ?? null);
+      })
       .catch(() => {});
   }, []);
 
   const storeUrl =
     accountId && typeof window !== "undefined"
-      ? `${window.location.origin}/loja/${accountId}`
+      ? `${window.location.origin}/loja/${storeSlug || accountId}`
       : null;
 
   const copyStoreUrl = useCallback(() => {
@@ -158,6 +174,12 @@ export function CatalogManager() {
       is_upsell: draft.is_upsell,
       is_active: draft.is_active,
       stock_quantity: stockQuantity,
+      offer_type: draft.offer_type,
+      billing_cycle: draft.offer_type === 'subscription' ? draft.billing_cycle : null,
+      compare_at_price_cents: draft.compare_at_price ? Math.round(Number(draft.compare_at_price.replace(',', '.')) * 100) : null,
+      trial_days: draft.offer_type === 'subscription' ? Number(draft.trial_days) || 0 : 0,
+      campaign_badge: draft.campaign_badge || null,
+      sku: draft.sku || null, ncm: draft.ncm || null, cest: draft.cest || null, cfop: draft.cfop || null, fiscal_unit: draft.fiscal_unit || 'UN',
     };
 
     setSaving(true);
@@ -326,6 +348,10 @@ export function CatalogManager() {
                 />
               </div>
               <div className="grid grid-cols-2 gap-3">
+                <div><label className="mb-1 block text-xs text-muted-foreground">Tipo de oferta</label><select className="h-9 w-full rounded-lg border border-border bg-muted px-3 text-sm" value={draft.offer_type} onChange={(e) => setDraft({ ...draft, offer_type: e.target.value as DraftState['offer_type'] })}><option value="service">Serviço</option><option value="physical_product">Produto físico</option><option value="subscription">Plano por assinatura</option></select></div>
+                {draft.offer_type === 'subscription' && <div><label className="mb-1 block text-xs text-muted-foreground">Periodicidade</label><select className="h-9 w-full rounded-lg border border-border bg-muted px-3 text-sm" value={draft.billing_cycle} onChange={(e) => setDraft({ ...draft, billing_cycle: e.target.value as DraftState['billing_cycle'] })}><option value="MONTHLY">Mensal</option><option value="QUARTERLY">Trimestral</option><option value="SEMIANNUALLY">Semestral</option><option value="YEARLY">Anual</option></select></div>}
+              </div>
+              <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="mb-1 block text-xs text-muted-foreground">{t("priceLabel")}</label>
                   <Input
@@ -348,6 +374,9 @@ export function CatalogManager() {
                 </div>
               </div>
               <p className="-mt-2 text-xs text-muted-foreground">{t("stockHint")}</p>
+              <div className="grid grid-cols-2 gap-3"><div><label className="mb-1 block text-xs text-muted-foreground">Preço original</label><Input value={draft.compare_at_price} onChange={(e) => setDraft({ ...draft, compare_at_price: e.target.value })} placeholder="Para mostrar desconto" /></div><div><label className="mb-1 block text-xs text-muted-foreground">Selo da campanha</label><Input value={draft.campaign_badge} onChange={(e) => setDraft({ ...draft, campaign_badge: e.target.value })} placeholder="Mais vendido" maxLength={40} /></div></div>
+              {draft.offer_type === 'subscription' && <div><label className="mb-1 block text-xs text-muted-foreground">Dias de teste grátis</label><Input type="number" min={0} max={365} value={draft.trial_days} onChange={(e) => setDraft({ ...draft, trial_days: e.target.value })} /></div>}
+              {draft.offer_type === 'physical_product' && <div className="rounded-lg border border-border p-3"><p className="mb-3 text-sm font-medium">Dados fiscais da mercadoria</p><div className="grid grid-cols-2 gap-3"><Input value={draft.sku} onChange={(e) => setDraft({ ...draft, sku: e.target.value })} placeholder="SKU" /><Input value={draft.ncm} onChange={(e) => setDraft({ ...draft, ncm: e.target.value })} placeholder="NCM (8 dígitos)" /><Input value={draft.cest} onChange={(e) => setDraft({ ...draft, cest: e.target.value })} placeholder="CEST" /><Input value={draft.cfop} onChange={(e) => setDraft({ ...draft, cfop: e.target.value })} placeholder="CFOP" /><Input value={draft.fiscal_unit} onChange={(e) => setDraft({ ...draft, fiscal_unit: e.target.value })} placeholder="Unidade (UN)" /></div><p className="mt-2 text-xs text-amber-400">Valide NCM, CEST e CFOP com sua contabilidade.</p></div>}
 
               <MediaField draft={draft} onChange={(patch) => setDraft({ ...draft, ...patch })} t={t} />
 

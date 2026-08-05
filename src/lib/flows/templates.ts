@@ -164,6 +164,11 @@ const FAQ_BOT: FlowTemplate = {
                 next_node_key: "answer_pricing",
               },
               {
+                reply_id: "new_purchase",
+                title: "Realizar nova compra",
+                next_node_key: "answer_new_purchase",
+              },
+              {
                 reply_id: "refunds",
                 title: "Política de reembolso",
                 next_node_key: "answer_refunds",
@@ -204,6 +209,14 @@ const FAQ_BOT: FlowTemplate = {
       node_type: "send_message",
       config: {
         text: "Reembolsos são aceitos em até 30 dias após a compra. Responda com o número do seu pedido que vamos processar.",
+        next_node_key: "end",
+      } as SendMessageNodeConfig,
+    },
+    {
+      node_key: "answer_new_purchase",
+      node_type: "send_message",
+      config: {
+        text: "Para realizar uma nova compra, acesse nossa loja: {{vars.store_url}}\n\nEscolha os itens e finalize seu pedido por lá.",
         next_node_key: "end",
       } as SendMessageNodeConfig,
     },

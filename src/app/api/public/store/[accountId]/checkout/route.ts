@@ -4,7 +4,10 @@ import { findOrCreateContact } from "@/lib/whatsapp/inbound";
 import { addContactTagIfAbsent } from "@/lib/contacts/tag-write";
 import { normalizePhone } from "@/lib/whatsapp/phone-utils";
 import { validateBrazilianTaxId } from "@/lib/brazilian-tax-id";
-import { ensureCheckoutPix } from "@/lib/orders/checkout";
+import { ensureCheckoutHostedCard, ensureCheckoutPix } from "@/lib/orders/checkout";
+import { resolvePublicStoreAccount } from "@/lib/store/public-store";
+import { createOrGetCustomer, createSubscription, getFirstSubscriptionPaymentInvoiceUrl } from "@/lib/billing/asaas";
+import { getTenantAsaasConfig } from "@/lib/orders/tenant-asaas";
 
 // Public, unauthenticated checkout for a tenant's own storefront
 // (/loja/[accountId]) — the workaround for a customer IMCRM can't
@@ -63,6 +66,8 @@ export async function POST(
   if (!body || typeof body !== "object") {
     return NextResponse.json({ error: "JSON inválido" }, { status: 400 });
   }
+  const paymentMethod = body.payment_method === "card" ? "card" : body.payment_method === "pix" ? "pix" : null;
+  if (!paymentMethod) return NextResponse.json({ error: "Escolha PIX ou cartão" }, { status: 400 });
 
   const rawItems = Array.isArray(body.items) ? body.items : [];
   if (rawItems.length === 0) {
@@ -85,38 +90,43 @@ export async function POST(
   const name = typeof customer.name === "string" ? customer.name.trim().slice(0, 200) : "";
   const phoneDigits = normalizePhone(typeof customer.phone === "string" ? customer.phone : "");
   const email = typeof customer.email === "string" ? customer.email.trim().slice(0, 200) : "";
+  const deliveryAddress = typeof customer.delivery_address === 'string' ? customer.delivery_address.trim().slice(0, 500) : '';
   if (!name) {
     return NextResponse.json({ error: "Informe seu nome" }, { status: 400 });
   }
   if (phoneDigits.length < 10 || phoneDigits.length > 13) {
     return NextResponse.json({ error: "Informe um telefone válido com DDD" }, { status: 400 });
   }
-  // Required (not just optional) so a lead captured through the
-  // storefront always lands with a complete contact record, not just
-  // a phone number — an explicit ask, distinct from cpf_cnpj (which
-  // stays optional since it's only needed for PIX, not identity).
+  // Required so every storefront order creates a complete contact record.
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     return NextResponse.json({ error: "Informe um e-mail válido" }, { status: 400 });
   }
-  const taxId = typeof customer.cpf_cnpj === "string" && customer.cpf_cnpj.trim()
+  const taxId = typeof customer.cpf_cnpj === "string"
     ? validateBrazilianTaxId(customer.cpf_cnpj)
     : null;
-  if (typeof customer.cpf_cnpj === "string" && customer.cpf_cnpj.trim() && !taxId) {
-    return NextResponse.json({ error: "CPF/CNPJ inválido" }, { status: 400 });
+  if (!taxId) {
+    return NextResponse.json({ error: "Informe um CPF/CNPJ válido" }, { status: 400 });
   }
 
   const db = supabaseAdmin();
 
-  const { data: account } = await db
-    .from("accounts")
-    .select("id, owner_user_id")
-    .eq("id", accountId)
-    .maybeSingle();
+  const account = await resolvePublicStoreAccount(db, accountId);
   if (!account) {
     return NextResponse.json({ error: "Loja não encontrada" }, { status: 404 });
   }
 
-  const contactOutcome = await findOrCreateContact(db, accountId, account.owner_user_id, phoneDigits, name);
+  const resolvedAccountId = account.id;
+  const { data: selectedCatalogItems } = await db.from('catalog_items').select('id, offer_type, billing_cycle').eq('account_id', resolvedAccountId).in('id', items.map((item) => item.catalog_item_id));
+  const subscriptionItems = (selectedCatalogItems ?? []).filter((item) => item.offer_type === 'subscription');
+  const hasPhysicalProduct = (selectedCatalogItems ?? []).some((item) => item.offer_type === 'physical_product');
+  if (hasPhysicalProduct && deliveryAddress.length < 10) return NextResponse.json({ error: 'Informe o endereço completo para entrega.' }, { status: 400 });
+  if (subscriptionItems.length > 0 && (items.length !== 1 || items[0].quantity !== 1)) {
+    return NextResponse.json({ error: 'Planos por assinatura devem ser contratados separadamente, uma unidade por vez.' }, { status: 400 });
+  }
+  if (subscriptionItems.length > 0 && paymentMethod !== 'card') {
+    return NextResponse.json({ error: 'Assinaturas recorrentes exigem pagamento por cartão.' }, { status: 400 });
+  }
+  const contactOutcome = await findOrCreateContact(db, resolvedAccountId, account.owner_user_id, phoneDigits, name);
   if (!contactOutcome) {
     return NextResponse.json({ error: "Não foi possível registrar seus dados. Tente novamente." }, { status: 500 });
   }
@@ -124,19 +134,20 @@ export async function POST(
 
   const contactUpdate: Record<string, unknown> = {};
   if (email) contactUpdate.email = email;
-  if (taxId) contactUpdate.cpf_cnpj = taxId.normalized;
+  contactUpdate.cpf_cnpj = taxId.normalized;
+  if (deliveryAddress) contactUpdate.delivery_address = deliveryAddress;
   if (Object.keys(contactUpdate).length > 0) {
     await db.from("contacts").update(contactUpdate).eq("id", contact.id);
   }
 
-  const siteTagId = await ensureSiteTag(db, accountId, account.owner_user_id);
+  const siteTagId = await ensureSiteTag(db, resolvedAccountId, account.owner_user_id);
   if (siteTagId) {
-    await addContactTagIfAbsent(db, { accountId, contactId: contact.id, tagId: siteTagId }).catch(() => {});
+    await addContactTagIfAbsent(db, { accountId: resolvedAccountId, contactId: contact.id, tagId: siteTagId }).catch(() => {});
   }
 
   const { data: rpcResult, error: rpcError } = await db
     .rpc("create_public_store_order", {
-      p_account_id: accountId,
+      p_account_id: resolvedAccountId,
       p_contact_id: contact.id,
       p_items: items,
     })
@@ -153,11 +164,33 @@ export async function POST(
 
   const order = rpcResult as { order_id: string; deal_id: string; total_cents: number; currency: string };
 
+  if (subscriptionItems.length === 1) {
+    try {
+      const tenantConfig = await getTenantAsaasConfig(db, resolvedAccountId);
+      if (!tenantConfig) throw new Error('Configure sua conta Asaas antes de vender assinaturas.');
+      const gatewayCustomer = await createOrGetCustomer({ config: tenantConfig, name, email, phone: phoneDigits, cpfCnpj: taxId.normalized, externalReference: contact.id });
+      const gatewaySubscription = await createSubscription({
+        config: tenantConfig, customerId: gatewayCustomer.id,
+        cycle: subscriptionItems[0].billing_cycle,
+        value: order.total_cents / 100, billingType: 'CREDIT_CARD',
+        nextDueDate: new Date().toISOString().slice(0, 10), externalReference: order.order_id,
+      });
+      await db.from('orders').update({ gateway_customer_id: gatewayCustomer.id, gateway_subscription_id: gatewaySubscription.id, payment_method: 'card', fiscal_document_type: 'NFS-e' }).eq('id', order.order_id);
+      const subscriptionPaymentUrl = await getFirstSubscriptionPaymentInvoiceUrl(tenantConfig, gatewaySubscription.id);
+      if (!subscriptionPaymentUrl) throw new Error('O Asaas ainda não disponibilizou o pagamento da assinatura.');
+      return NextResponse.json({ order_id: order.order_id, total_cents: order.total_cents, currency: order.currency, payment_url: subscriptionPaymentUrl, subscription: true });
+    } catch (error) {
+      await db.from('orders').update({ status: 'canceled' }).eq('id', order.order_id);
+      return NextResponse.json({ error: error instanceof Error ? error.message : 'Não foi possível criar a assinatura.' }, { status: 502 });
+    }
+  }
+
   let pixCopyPaste: string | null = null;
-  if (taxId) {
+  let paymentUrl: string | null = null;
+  if (taxId && paymentMethod === "pix") {
     try {
       const pixResult = await ensureCheckoutPix(db, {
-        accountId,
+        accountId: resolvedAccountId,
         orderId: order.order_id,
         contactId: contact.id,
       });
@@ -171,10 +204,21 @@ export async function POST(
     }
   }
 
+  if (paymentMethod === "card") {
+    try {
+      const result = await ensureCheckoutHostedCard(db, { accountId: resolvedAccountId, orderId: order.order_id, contactId: contact.id });
+      if (result.ok) paymentUrl = result.paymentUrl;
+      else return NextResponse.json({ error: result.retryMessage, order_id: order.order_id }, { status: 502 });
+    } catch {
+      return NextResponse.json({ error: "Não foi possível iniciar o pagamento. Tente novamente.", order_id: order.order_id }, { status: 502 });
+    }
+  }
+
   return NextResponse.json({
     order_id: order.order_id,
     total_cents: order.total_cents,
     currency: order.currency,
     pix_copy_paste: pixCopyPaste,
+    payment_url: paymentUrl,
   });
 }

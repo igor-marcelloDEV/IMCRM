@@ -103,7 +103,7 @@ export function ActivityFeed({ items, loading }: ActivityFeedProps) {
                     <Icon className="h-3.5 w-3.5" />
                   </span>
                   <span className="min-w-0 flex-1 truncate text-sm text-foreground">
-                    {it.text}
+                    {translateActivityText(it.text)}
                   </span>
                   <span className="flex-shrink-0 text-xs text-muted-foreground tabular-nums">
                     {relativeTime(it.at, t)}
@@ -165,5 +165,24 @@ function relativeTime(iso: string, t: ReturnType<typeof useTranslations>): strin
   if (diffSec < 3600) return t('timeM', { min: Math.floor(diffSec / 60) })
   if (diffSec < 86400) return t('timeH', { hr: Math.floor(diffSec / 3600) })
   if (diffSec < 2_592_000) return t('timeD', { day: Math.floor(diffSec / 86400) })
-  return new Date(iso).toLocaleDateString()
+  return new Date(iso).toLocaleDateString('pt-BR')
+}
+
+const ACTIVITY_STATUS_LABELS: Record<string, string> = {
+  awaiting_payment: 'Aguardando pagamento',
+  confirmed: 'Pagamento confirmado',
+  preparing: 'Em preparo',
+  ready: 'Pronto para entrega',
+  out_for_delivery: 'Saiu para entrega',
+  delivered: 'Entregue',
+  pending_payment: 'Aguardando pagamento',
+  paid: 'Pago',
+  canceled: 'Cancelado',
+};
+
+function translateActivityText(text: string): string {
+  return text.replace(
+    /\b(awaiting_payment|confirmed|preparing|ready|out_for_delivery|delivered|pending_payment|paid|canceled)\b/g,
+    (status) => ACTIVITY_STATUS_LABELS[status] ?? status,
+  );
 }

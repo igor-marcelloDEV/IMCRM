@@ -274,4 +274,12 @@ describe('validateTemplatePayload — integration', () => {
       }),
     ).toThrow(/exactly 1 sample/);
   });
+  it('allows missing samples for providers without Meta review', () => {
+    expect(
+      validateTemplatePayload(
+        { ...baseValid, body_text: 'Hi {{1}}' },
+        { requireSampleValues: false },
+      ),
+    ).toEqual({ bodyVarCount: 1, headerVarCount: 0 });
+  });
 });

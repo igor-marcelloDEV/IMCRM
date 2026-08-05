@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import {
   createOrGetCustomer,
   createOrGetPixPayment,
+  createOrGetHostedCardPayment,
   getPixQrCode,
   type AsaasPixQrCode,
 } from '@/lib/billing/asaas';
@@ -33,6 +34,10 @@ export interface CheckoutPixFailure {
 }
 
 export type CheckoutPixResult = CheckoutPixSuccess | CheckoutPixFailure;
+
+export type CheckoutHostedCardResult =
+  | { ok: true; orderId: string; paymentUrl: string; reusedGatewayPayment: boolean }
+  | CheckoutPixFailure;
 
 interface CheckoutOrderRow {
   id: string;
@@ -565,4 +570,73 @@ export async function ensureCheckoutPix(
     pixCopyPaste: completed.pix_copy_paste,
     reusedGatewayPayment: pix.reused,
   };
+}
+
+export async function ensureCheckoutHostedCard(
+  db: SupabaseClient,
+  args: { accountId: string; orderId: string; contactId: string },
+): Promise<CheckoutHostedCardResult> {
+  const order = await loadCheckoutOrder(db, args.accountId, args.orderId);
+  if (!order || order.contact_id !== args.contactId) {
+    throw new CheckoutPersistenceError('load checkout order', 'pedido não encontrado');
+  }
+  if (order.status !== 'pending_payment') {
+    return { ok: false, orderId: order.id, code: 'order_not_pending', retryMessage: 'Este pedido não está mais aguardando pagamento.' };
+  }
+
+  const { data: stored } = await db
+    .from('orders')
+    .select('payment_url')
+    .eq('id', order.id)
+    .eq('account_id', args.accountId)
+    .maybeSingle();
+  if (order.gateway_payment_id && stored?.payment_url) {
+    return { ok: true, orderId: order.id, paymentUrl: stored.payment_url, reusedGatewayPayment: true };
+  }
+
+  const config = await getTenantAsaasConfig(db, args.accountId);
+  if (!config) {
+    return { ok: false, orderId: order.id, code: 'asaas_not_configured', retryMessage: 'O pagamento via Asaas ainda não está configurado.' };
+  }
+  const { data: contactData, error: contactError } = await db
+    .from('contacts')
+    .select('name, email, phone, cpf_cnpj')
+    .eq('id', args.contactId)
+    .eq('account_id', args.accountId)
+    .maybeSingle();
+  if (contactError || !contactData) throw persistenceError('load checkout contact', contactError);
+  const contact = contactData as CheckoutContactRow;
+  const taxId = contact.cpf_cnpj ? validateBrazilianTaxId(contact.cpf_cnpj) : null;
+  if (!taxId) return { ok: false, orderId: order.id, code: 'invalid_cpf_cnpj', retryMessage: 'Informe um CPF/CNPJ válido.' };
+
+  try {
+    const customer = await createOrGetCustomer({
+      config,
+      name: contact.name || 'Cliente',
+      email: contact.email || `contato-${args.contactId}@sememail.imcrm.app`,
+      phone: contact.phone,
+      cpfCnpj: taxId.normalized,
+      externalReference: args.contactId,
+    });
+    const dueDate = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const charge = await createOrGetHostedCardPayment({
+      config,
+      customerId: customer.id,
+      value: order.total_cents / 100,
+      dueDate,
+      description: 'Pedido na loja online',
+      externalReference: order.id,
+    });
+    const { data, error } = await db.rpc('complete_order_hosted_card_charge', {
+      p_order_id: order.id,
+      p_account_id: args.accountId,
+      p_gateway_customer_id: customer.id,
+      p_gateway_payment_id: charge.payment.id,
+      p_payment_url: charge.payment.invoiceUrl,
+    });
+    if (error || data !== true) throw persistenceError('complete_order_hosted_card_charge', error);
+    return { ok: true, orderId: order.id, paymentUrl: charge.payment.invoiceUrl, reusedGatewayPayment: charge.reused };
+  } catch (error) {
+    return failCheckout(db, { orderId: order.id, accountId: args.accountId, code: 'asaas_card_charge_failed', error, retryMessage: 'Não foi possível abrir o pagamento no Asaas. Tente novamente.' });
+  }
 }

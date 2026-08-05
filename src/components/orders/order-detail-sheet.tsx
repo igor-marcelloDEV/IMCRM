@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
 import { formatCurrency } from "@/lib/currency";
@@ -13,7 +14,6 @@ import {
 } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
@@ -31,6 +31,10 @@ import {
   Wallet,
   User,
   Phone,
+  Pencil,
+  Check,
+  GitBranch,
+  MessageCircle,
 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { CatalogPickerDialog } from "@/components/pipelines/catalog-picker-dialog";
@@ -57,11 +61,16 @@ const PAYMENT_METHODS: OrderPaymentMethod[] = ["cash", "pix_manual", "card_debit
 
 export function OrderDetailSheet({ open, onOpenChange, orderId, onSaved }: OrderDetailSheetProps) {
   const t = useTranslations("Orders.detail");
+  const router = useRouter();
   const supabase = createClient();
 
   const [loading, setLoading] = useState(false);
   const [order, setOrder] = useState<Order | null>(null);
   const [contact, setContact] = useState<Contact | null>(null);
+  const [pipelineInfo, setPipelineInfo] = useState<{ pipeline: string; stage: string } | null>(null);
+  const [editingContactName, setEditingContactName] = useState(false);
+  const [contactName, setContactName] = useState('');
+  const [savingContactName, setSavingContactName] = useState(false);
   const [items, setItems] = useState<OrderItem[]>([]);
   const [payments, setPayments] = useState<OrderPayment[]>([]);
   const [catalogItems, setCatalogItems] = useState<CatalogItem[]>([]);
@@ -83,7 +92,7 @@ export function OrderDetailSheet({ open, onOpenChange, orderId, onSaved }: Order
     setLoading(true);
     const [{ data: orderRow }, { data: itemRows }, { data: paymentRows }, { data: catalog }] =
       await Promise.all([
-        supabase.from("orders").select("*, contact:contacts(*)").eq("id", orderId).maybeSingle(),
+        supabase.from("orders").select("*, contact:contacts(*), deal:deals(pipeline:pipelines(name), stage:pipeline_stages(name))").eq("id", orderId).maybeSingle(),
         supabase.from("order_items").select("*").eq("order_id", orderId).order("created_at"),
         supabase
           .from("order_payments")
@@ -92,9 +101,11 @@ export function OrderDetailSheet({ open, onOpenChange, orderId, onSaved }: Order
           .order("created_at"),
         supabase.from("catalog_items").select("*").eq("is_active", true).order("position"),
       ]);
-    const o = (orderRow as (Order & { contact: Contact | null }) | null) ?? null;
+    const o = (orderRow as (Order & { contact: Contact | null; deal: { pipeline: { name: string } | null; stage: { name: string } | null } | null }) | null) ?? null;
     setOrder(o);
     setContact(o?.contact ?? null);
+    setContactName(o?.contact?.name ?? '');
+    setPipelineInfo(o?.deal ? { pipeline: o.deal.pipeline?.name ?? '—', stage: o.deal.stage?.name ?? '—' } : null);
     setNotes(o?.notes ?? "");
     setItems((itemRows as OrderItem[] | null) ?? []);
     setPayments((paymentRows as OrderPayment[] | null) ?? []);
@@ -238,6 +249,60 @@ export function OrderDetailSheet({ open, onOpenChange, orderId, onSaved }: Order
     }
   }
 
+  async function saveContactName() {
+    const nextName = contactName.trim();
+    if (!contact || nextName.length < 2) return;
+    setSavingContactName(true);
+    const { error } = await supabase.from('contacts').update({ name: nextName, updated_at: new Date().toISOString() }).eq('id', contact.id);
+    if (error) toast.error(t('contactEditFailed'));
+    else {
+      setContact({ ...contact, name: nextName });
+      setEditingContactName(false);
+      toast.success(t('contactEdited'));
+      onSaved();
+    }
+    setSavingContactName(false);
+  }
+
+  async function openInternalConversation(message: string) {
+    if (!contact) return;
+    const { data: conversation, error } = await supabase
+      .from('conversations')
+      .select('id')
+      .eq('contact_id', contact.id)
+      .order('last_message_at', { ascending: false, nullsFirst: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error || !conversation) {
+      toast.error(t('conversationNotFound'));
+      return;
+    }
+
+    onOpenChange(false);
+    router.push(`/inbox?c=${conversation.id}&draft=${encodeURIComponent(message)}`);
+  }
+
+  async function openRecoveryMessage() {
+    if (!order || !contact) return;
+    const customerName = contact.name && !/^\+?\d[\d\s().-]+$/.test(contact.name) ? contact.name.split(' ')[0] : '';
+    const paymentUrl = `${window.location.origin}/loja/${order.account_id}/pedido/${order.id}`;
+    const message = t('recoveryMessage', { name: customerName, order: order.order_code, link: paymentUrl });
+    await openInternalConversation(message);
+  }
+
+  async function openOrderWhatsApp() {
+    if (!order || !contact) return;
+    const customerName = contact.name && !/^\+?\d[\d\s().-]+$/.test(contact.name)
+      ? contact.name.split(' ')[0]
+      : '';
+    const message = t('orderWhatsappMessage', {
+      name: customerName,
+      order: order.order_code,
+    });
+    await openInternalConversation(message);
+  }
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="right" className="w-full border-border bg-popover p-0 text-popover-foreground sm:max-w-lg">
@@ -245,7 +310,7 @@ export function OrderDetailSheet({ open, onOpenChange, orderId, onSaved }: Order
           <SheetHeader className="border-b border-border/50 p-4">
             <SheetTitle className="text-popover-foreground">
               {order
-                ? `${order.source === "manual" ? t("titleComanda") : t("titleOrder")} #${order.order_number}`
+                ? `${order.source === "manual" ? t("titleComanda") : t("titleOrder")} #${order.order_code}`
                 : t("titleOrder")}
             </SheetTitle>
           </SheetHeader>
@@ -262,21 +327,52 @@ export function OrderDetailSheet({ open, onOpenChange, orderId, onSaved }: Order
                     <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
                       <User className="h-4 w-4" />
                     </span>
-                    <div className="min-w-0">
-                      <p className="truncate font-medium text-foreground">
-                        {contact?.name || contact?.phone || t("unknownContact")}
-                      </p>
+                    <div className="min-w-0 flex-1">
+                      {editingContactName ? (
+                        <Input value={contactName} onChange={(event) => setContactName(event.target.value)} className="h-8 bg-card" autoFocus onKeyDown={(event) => { if (event.key === 'Enter') void saveContactName(); }} />
+                      ) : <p className="truncate font-medium text-foreground">{contact?.name || contact?.phone || t("unknownContact")}</p>}
                       {contact?.phone && (
                         <p className="flex items-center gap-1 truncate text-xs text-muted-foreground">
                           <Phone className="h-3 w-3" /> {contact.phone}
                         </p>
                       )}
                     </div>
+                    {contact && (editingContactName ? (
+                      <Button size="icon-sm" variant="ghost" disabled={savingContactName || contactName.trim().length < 2} onClick={() => void saveContactName()} aria-label={t('saveContactName')}><Check className="h-4 w-4" /></Button>
+                    ) : (
+                      <Button size="icon-sm" variant="ghost" onClick={() => setEditingContactName(true)} aria-label={t('editContact')}><Pencil className="h-4 w-4" /></Button>
+                    ))}
                     <span className="ml-auto shrink-0 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
                       {t(`status.${order.status}`)}
                     </span>
                   </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full border-emerald-500/30 bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20 hover:text-emerald-400"
+                    onClick={() => void openOrderWhatsApp()}
+                    disabled={!contact}
+                  >
+                    <MessageCircle className="mr-2 h-4 w-4" />
+                    {t('contactOnWhatsapp')}
+                  </Button>
                 </FormSection>
+
+                <FormSection title={t('sectionFunnel')}>
+                  <div className="flex items-center gap-3 rounded-lg border border-border bg-muted/40 p-3">
+                    <GitBranch className="h-4 w-4 text-primary" />
+                    <div className="min-w-0 flex-1"><p className="truncate text-sm font-medium text-foreground">{pipelineInfo?.pipeline ?? t('noFunnel')}</p><p className="text-xs text-muted-foreground">{pipelineInfo?.stage ?? t('noFunnelStage')}</p></div>
+                  </div>
+                </FormSection>
+
+                {order.status === 'pending_payment' && (
+                  <FormSection title={t('sectionRecovery')}>
+                    <div className="space-y-3 rounded-lg border border-amber-500/25 bg-amber-500/5 p-3">
+                      <p className="text-xs leading-5 text-muted-foreground">{t('recoveryHint', { order: order.order_code })}</p>
+                      <Button type="button" className="w-full" onClick={() => void openRecoveryMessage()} disabled={!contact}><MessageCircle className="mr-2 h-4 w-4" />{t('sendRecovery')}</Button>
+                    </div>
+                  </FormSection>
+                )}
 
                 <FormSection title={t("sectionItems")}>
                   <div className="rounded-lg border border-border bg-muted/40 p-3">

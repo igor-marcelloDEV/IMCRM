@@ -556,7 +556,7 @@ export function DealForm({
                       {t("items.addPlaceholder")}
                     </Button>
                   ) : catalogItems.length === 0 ? (
-                    <Link href="/settings?tab=catalog" className="text-xs text-primary hover:underline">
+                    <Link href="/catalog" className="text-xs text-primary hover:underline">
                       {t("items.emptyCatalogCta")}
                     </Link>
                   ) : null}

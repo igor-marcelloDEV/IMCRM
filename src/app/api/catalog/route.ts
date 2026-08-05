@@ -54,6 +54,11 @@ export async function POST(request: Request) {
     }
     stockQuantity = parsed
   }
+  const offerType = ['physical_product', 'service', 'subscription'].includes(body.offer_type) ? body.offer_type : 'service'
+  const billingCycle = offerType === 'subscription' && ['MONTHLY', 'QUARTERLY', 'SEMIANNUALLY', 'YEARLY'].includes(body.billing_cycle) ? body.billing_cycle : null
+  if (offerType === 'subscription' && !billingCycle) return NextResponse.json({ error: 'Selecione a periodicidade da assinatura.' }, { status: 400 })
+  const compareAt = body.compare_at_price_cents === null || body.compare_at_price_cents === '' ? null : Number(body.compare_at_price_cents)
+  if (compareAt !== null && (!Number.isFinite(compareAt) || compareAt < priceCents)) return NextResponse.json({ error: 'O preço original deve ser maior ou igual ao preço de venda.' }, { status: 400 })
 
   const { data: account } = await ctx.supabase
     .from('accounts')
@@ -75,6 +80,16 @@ export async function POST(request: Request) {
       is_active: body.is_active !== false,
       position: Number.isFinite(Number(body.position)) ? Number(body.position) : 0,
       stock_quantity: stockQuantity,
+      offer_type: offerType,
+      billing_cycle: billingCycle,
+      compare_at_price_cents: compareAt === null ? null : Math.round(compareAt),
+      trial_days: offerType === 'subscription' ? Math.min(Math.max(Number(body.trial_days) || 0, 0), 365) : 0,
+      campaign_badge: typeof body.campaign_badge === 'string' ? body.campaign_badge.trim().slice(0, 40) || null : null,
+      sku: typeof body.sku === 'string' ? body.sku.trim().slice(0, 80) || null : null,
+      ncm: offerType === 'physical_product' && typeof body.ncm === 'string' ? body.ncm.replace(/\D/g, '').slice(0, 8) || null : null,
+      cest: offerType === 'physical_product' && typeof body.cest === 'string' ? body.cest.replace(/\D/g, '').slice(0, 7) || null : null,
+      cfop: offerType === 'physical_product' && typeof body.cfop === 'string' ? body.cfop.replace(/\D/g, '').slice(0, 4) || null : null,
+      fiscal_unit: typeof body.fiscal_unit === 'string' ? body.fiscal_unit.trim().toUpperCase().slice(0, 6) || 'UN' : 'UN',
     })
     .select()
     .single()

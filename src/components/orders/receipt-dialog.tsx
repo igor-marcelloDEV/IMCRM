@@ -26,6 +26,13 @@ interface ReceiptDialogProps {
 interface Branding {
   name: string;
   logo_url: string | null;
+  legal_name: string | null;
+  cnpj: string | null;
+}
+
+function formatCnpj(value: string | null | undefined): string {
+  const digits = value?.replace(/\D/g, '') ?? '';
+  return digits.length === 14 ? digits.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5') : '';
 }
 
 /** Fetches a remote image and returns it as a data URL, or null if it
@@ -73,7 +80,7 @@ export function ReceiptDialog({ open, onOpenChange, order, items, contact }: Rec
       const res = await fetch("/api/account");
       const data = await res.json().catch(() => ({}));
       if (!cancelled && res.ok && data.account) {
-        setBranding({ name: data.account.name, logo_url: data.account.logo_url ?? null });
+        setBranding({ name: data.account.name, logo_url: data.account.logo_url ?? null, legal_name: data.account.legal_name ?? null, cnpj: data.account.cnpj ?? null });
       }
     })();
     return () => {
@@ -106,7 +113,10 @@ export function ReceiptDialog({ open, onOpenChange, order, items, contact }: Rec
   function receiptText(): string {
     const lines = [
       branding?.name ?? "",
-      `${t("orderRef")} #${order.order_number}`,
+      branding?.legal_name && branding.legal_name !== branding.name ? branding.legal_name : "",
+      branding?.cnpj ? `CNPJ: ${formatCnpj(branding.cnpj)}` : "",
+      `${t("orderRef")} #${order.order_code}`,
+      contact?.name ? `${t("customer")}: ${contact.name}` : "",
       "—".repeat(20),
       ...items.map(
         (i) =>
@@ -138,7 +148,7 @@ export function ReceiptDialog({ open, onOpenChange, order, items, contact }: Rec
       const dataUrl = await urlToDataUrl(branding.logo_url);
       if (dataUrl) {
         try {
-          doc.addImage(dataUrl, "JPEG", marginX, y, 18, 18);
+          doc.addImage(dataUrl, dataUrl.startsWith('data:image/png') ? 'PNG' : 'JPEG', marginX, y, 18, 18);
         } catch {
           // Unsupported format (e.g. SVG) — skip the logo, not fatal.
         }
@@ -148,11 +158,22 @@ export function ReceiptDialog({ open, onOpenChange, order, items, contact }: Rec
     doc.setFontSize(14);
     doc.setFont("helvetica", "bold");
     doc.text(branding?.name ?? "", marginX + 22, y + 7);
-    doc.setFontSize(10);
+    doc.setFontSize(9);
     doc.setFont("helvetica", "normal");
-    doc.text(`${t("orderRef")} #${order.order_number}`, marginX + 22, y + 13);
-    doc.text(date, marginX + 22, y + 18);
-    y += 28;
+    const companyDetails = [branding?.legal_name && branding.legal_name !== branding.name ? branding.legal_name : '', branding?.cnpj ? `CNPJ: ${formatCnpj(branding.cnpj)}` : ''].filter(Boolean) as string[];
+    companyDetails.forEach((detail, index) => doc.text(detail, marginX + 22, y + 13 + index * 4));
+    y += Math.max(24, 18 + companyDetails.length * 4);
+
+    doc.setFillColor(245, 247, 250);
+    doc.roundedRect(marginX, y, 210 - marginX * 2, 20, 2, 2, 'F');
+    doc.setFontSize(11);
+    doc.setFont('helvetica', 'bold');
+    doc.text(`${t("orderRef")} #${order.order_code}`, marginX + 4, y + 7);
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'normal');
+    doc.text(`${t('date')}: ${date}`, marginX + 4, y + 13);
+    if (contact?.name) doc.text(`${t('customer')}: ${contact.name}`, 210 - marginX - 4, y + 7, { align: 'right' });
+    y += 27;
 
     doc.setDrawColor(200);
     doc.line(marginX, y, 210 - marginX, y);
@@ -197,6 +218,11 @@ export function ReceiptDialog({ open, onOpenChange, order, items, contact }: Rec
       doc.setTextColor(0);
     }
 
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8);
+    doc.setTextColor(120);
+    doc.text(t('nonFiscalDocument'), 105, 287, { align: 'center' });
+
     return doc.output("blob");
   }
 
@@ -204,7 +230,7 @@ export function ReceiptDialog({ open, onOpenChange, order, items, contact }: Rec
     setSharing(true);
     try {
       const phone = contact?.phone ? contact.phone.replace(/\D/g, "") : "";
-      const fileName = `comprovante-${order.order_number}.pdf`;
+      const fileName = `comprovante-${order.order_code}.pdf`;
       const blob = await buildPdfBlob();
       const file = new File([blob], fileName, { type: "application/pdf" });
 
@@ -243,22 +269,26 @@ export function ReceiptDialog({ open, onOpenChange, order, items, contact }: Rec
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-[95vw] max-w-sm p-0">
-        <DialogHeader className="border-b border-border px-5 pt-5 pb-4">
-          <DialogTitle>
-            {t("title")} #{order.order_number}
+      <DialogContent className="max-h-[calc(100dvh-2rem)] w-[calc(100vw-1.5rem)] max-w-lg gap-0 overflow-hidden p-0 sm:w-[95vw]">
+        <DialogHeader className="shrink-0 border-b border-border px-5 pt-5 pr-12 pb-4">
+          <DialogTitle className="truncate">
+            {t("title")} #{order.order_code}
           </DialogTitle>
         </DialogHeader>
 
-        <div className="max-h-[70vh] overflow-y-auto">
+        <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain">
           <div className="print-only-area px-5 py-4">
-            <div className="flex flex-col items-center gap-2 text-center">
+            <div className="flex items-center gap-3 border-b border-border pb-4 text-left">
               {branding?.logo_url && (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={branding.logo_url} alt={branding.name} className="h-14 w-14 rounded object-contain" />
+                <img src={branding.logo_url} alt={branding.name} className="h-16 w-16 shrink-0 rounded-lg border border-border bg-white object-contain p-1" />
               )}
-              <p className="text-base font-semibold text-foreground">{branding?.name ?? "…"}</p>
-              <p className="text-xs text-muted-foreground">{date}</p>
+              <div className="min-w-0"><p className="truncate text-lg font-bold text-foreground">{branding?.name ?? "…"}</p>{branding?.legal_name && branding.legal_name !== branding.name && <p className="text-xs text-muted-foreground">{branding.legal_name}</p>}{branding?.cnpj && <p className="mt-1 text-xs font-medium text-foreground">CNPJ: {formatCnpj(branding.cnpj)}</p>}</div>
+            </div>
+
+            <div className="mt-4 rounded-lg bg-muted/50 p-3">
+              <div className="flex items-start justify-between gap-3"><div><p className="text-xs text-muted-foreground">{t('orderRef')}</p><p className="text-lg font-bold text-foreground">#{order.order_code}</p></div><div className="text-right"><p className="text-xs text-muted-foreground">{t('date')}</p><p className="text-xs font-medium text-foreground">{date}</p></div></div>
+              {contact && <div className="mt-3 border-t border-border pt-2"><p className="text-[11px] uppercase tracking-wide text-muted-foreground">{t('customer')}</p><p className="text-sm font-medium text-foreground">{contact.name || contact.phone}</p>{contact.name && contact.phone && <p className="text-xs text-muted-foreground">{contact.phone}</p>}</div>}
             </div>
 
             <div className="mt-4 space-y-1.5 border-t border-dashed border-border pt-3">
@@ -302,19 +332,20 @@ export function ReceiptDialog({ open, onOpenChange, order, items, contact }: Rec
                 )}
               </div>
             )}
+            <p className="mt-5 border-t border-border pt-3 text-center text-[10px] text-muted-foreground">{t('nonFiscalDocument')}</p>
           </div>
         </div>
 
-        <div className="flex gap-2 border-t border-border p-4">
-          <Button variant="outline" size="sm" className="flex-1 gap-1.5" onClick={copyText}>
+        <div className="grid shrink-0 grid-cols-2 gap-2 border-t border-border bg-popover p-4 sm:grid-cols-3">
+          <Button variant="outline" size="sm" className="min-w-0 gap-1.5" onClick={copyText}>
             <Copy className="h-3.5 w-3.5" />
             {t("copy")}
           </Button>
-          <Button variant="outline" size="sm" className="flex-1 gap-1.5" onClick={() => window.print()}>
+          <Button variant="outline" size="sm" className="min-w-0 gap-1.5" onClick={() => window.print()}>
             <Printer className="h-3.5 w-3.5" />
             {t("print")}
           </Button>
-          <Button size="sm" className="flex-1 gap-1.5" onClick={shareOnWhatsApp} disabled={sharing}>
+          <Button size="sm" className="col-span-2 min-w-0 gap-1.5 sm:col-span-1" onClick={shareOnWhatsApp} disabled={sharing}>
             {sharing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <MessageCircle className="h-3.5 w-3.5" />}
             {t("shareWhatsapp")}
           </Button>

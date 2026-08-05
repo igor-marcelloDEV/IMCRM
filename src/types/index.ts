@@ -59,6 +59,9 @@ export interface Account {
    *  (receipts today; future reports) — never on the official NFS-e
    *  PDF, whose layout the municipality/Asaas controls (migration 064). */
   logo_url: string | null;
+  legal_name: string | null;
+  cnpj: string | null;
+  store_slug: string | null;
   /** auth.users.id of the immutable owner. */
   owner_user_id: string;
   /**
@@ -805,6 +808,16 @@ export interface CatalogItem {
   /** NULL = not tracked (unlimited). Decremented atomically on every
    *  checkout path (public store, comanda item add) once set. */
   stock_quantity: number | null;
+  offer_type: 'physical_product' | 'service' | 'subscription';
+  billing_cycle: 'MONTHLY' | 'QUARTERLY' | 'SEMIANNUALLY' | 'YEARLY' | null;
+  compare_at_price_cents: number | null;
+  trial_days: number;
+  campaign_badge: string | null;
+  sku: string | null;
+  ncm: string | null;
+  cest: string | null;
+  cfop: string | null;
+  fiscal_unit: string;
   created_at: string;
   updated_at: string;
 }
@@ -822,6 +835,7 @@ export interface Order {
   /** Per-account sequential number ("Comanda #7") — assigned atomically
    *  by a DB trigger on insert (migration 066), never client-supplied. */
   order_number: number;
+  order_code: string;
   status: OrderStatus;
   subtotal_cents: number;
   total_cents: number;

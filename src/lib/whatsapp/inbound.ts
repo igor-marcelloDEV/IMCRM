@@ -200,13 +200,21 @@ export async function findOrCreateContact(
   name: string,
 ): Promise<ContactOutcome | null> {
   const existingContact = await findExistingContact(db, accountId, phone);
+  const cleanName = name.trim();
+  const hasUsefulName =
+    cleanName.length >= 2 &&
+    cleanName.length <= 120 &&
+    /\p{L}/u.test(cleanName) &&
+    normalizePhone(cleanName) !== phone &&
+    !/^\+?\d[\d\s().-]+$/.test(cleanName);
 
   if (existingContact) {
-    if (name && name !== existingContact.name) {
+    if (hasUsefulName && cleanName !== existingContact.name) {
       await db
         .from('contacts')
-        .update({ name, updated_at: new Date().toISOString() })
+        .update({ name: cleanName, updated_at: new Date().toISOString() })
         .eq('id', existingContact.id);
+      return { contact: { ...existingContact, name: cleanName }, wasCreated: false };
     }
     return { contact: existingContact, wasCreated: false };
   }
@@ -217,7 +225,7 @@ export async function findOrCreateContact(
       account_id: accountId,
       user_id: configOwnerUserId,
       phone,
-      name: name || phone,
+      name: hasUsefulName ? cleanName : phone,
     })
     .select()
     .single();

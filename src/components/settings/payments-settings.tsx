@@ -54,6 +54,8 @@ export function PaymentsSettings() {
   // (receipts today; future reports), never on the official NFS-e PDF
   // (that layout is the municipality's, via Asaas).
   const [businessName, setBusinessName] = useState('');
+  const [legalName, setLegalName] = useState('');
+  const [businessCnpj, setBusinessCnpj] = useState('');
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const [savingBranding, setSavingBranding] = useState(false);
   const [uploadingLogo, setUploadingLogo] = useState(false);
@@ -64,6 +66,8 @@ export function PaymentsSettings() {
     const data = await res.json().catch(() => ({}));
     if (res.ok && data.account) {
       setBusinessName(data.account.name ?? '');
+      setLegalName(data.account.legal_name ?? data.account.name ?? '');
+      setBusinessCnpj(data.account.cnpj ?? '');
       setLogoUrl(data.account.logo_url ?? null);
     }
   }, []);
@@ -73,7 +77,7 @@ export function PaymentsSettings() {
   }, [loadBranding]);
 
   const saveBranding = useCallback(
-    async (patch: { name?: string; logo_url?: string | null }) => {
+    async (patch: { name?: string; logo_url?: string | null; legal_name?: string | null; cnpj?: string | null }) => {
       setSavingBranding(true);
       try {
         const res = await fetch('/api/account', {
@@ -321,27 +325,21 @@ export function PaymentsSettings() {
             )}
           </div>
 
-          <div className="flex-1">
+          <div className="flex-1 space-y-3">
+            <div>
             <label className="text-muted-foreground mb-1 block text-xs">
               {t('businessNameLabel')}
             </label>
-            <div className="flex gap-2">
-              <Input
-                value={businessName}
-                onChange={(e) => setBusinessName(e.target.value)}
-                placeholder={t('businessNamePlaceholder')}
-                className="bg-muted"
-              />
-              <Button
-                variant="outline"
-                disabled={savingBranding || !businessName.trim()}
-                onClick={() => saveBranding({ name: businessName.trim() })}
-              >
-                {savingBranding && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
-                {t('save')}
-              </Button>
+            <Input value={businessName} onChange={(e) => setBusinessName(e.target.value)} placeholder={t('businessNamePlaceholder')} className="bg-muted" />
             </div>
-            <p className="text-muted-foreground mt-2 text-[11px]">{t('brandingHint')}</p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div><label className="text-muted-foreground mb-1 block text-xs">{t('legalNameLabel')}</label><Input value={legalName} onChange={(e) => setLegalName(e.target.value)} placeholder={t('legalNamePlaceholder')} className="bg-muted" /></div>
+              <div><label className="text-muted-foreground mb-1 block text-xs">{t('cnpjLabel')}</label><Input value={businessCnpj} onChange={(e) => setBusinessCnpj(e.target.value)} placeholder="00.000.000/0000-00" inputMode="numeric" className="bg-muted" /></div>
+            </div>
+            <Button variant="outline" disabled={savingBranding || !businessName.trim()} onClick={() => saveBranding({ name: businessName.trim(), legal_name: legalName.trim() || null, cnpj: businessCnpj.trim() || null })}>
+              {savingBranding && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}{t('saveIdentity')}
+            </Button>
+            <p className="text-muted-foreground text-[11px]">{t('brandingHint')}</p>
           </div>
         </div>
       </div>

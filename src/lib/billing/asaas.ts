@@ -13,7 +13,7 @@
  */
 
 export type AsaasEnv = 'sandbox' | 'production'
-export type AsaasCycle = 'WEEKLY' | 'MONTHLY' | 'YEARLY'
+export type AsaasCycle = 'WEEKLY' | 'MONTHLY' | 'QUARTERLY' | 'SEMIANNUALLY' | 'YEARLY'
 export type AsaasBillingType = 'PIX' | 'BOLETO' | 'CREDIT_CARD'
 
 function baseUrl(env: AsaasEnv): string {
@@ -303,6 +303,71 @@ export async function createOrGetPixPayment(
 
   const created = await createPixPayment(args)
   return { ...created, reused: false }
+}
+
+export interface AsaasHostedCardPayment {
+  id: string
+  status: string
+  invoiceUrl: string
+  customer?: string
+  value?: number
+  billingType?: AsaasBillingType
+  externalReference?: string
+}
+
+export interface CreateHostedCardPaymentArgs {
+  config: AsaasClientConfig
+  customerId: string
+  value: number
+  dueDate: string
+  description: string
+  externalReference: string
+}
+
+/**
+ * Creates a hosted Asaas invoice instead of collecting card data in IMCRM.
+ * Asaas exposes debit on its hosted invoice for CREDIT_CARD charges when the
+ * merchant account is eligible; saved-card suggestions are owned by the
+ * customer's browser/device.
+ */
+export async function createOrGetHostedCardPayment(
+  args: CreateHostedCardPaymentArgs,
+): Promise<{ payment: AsaasHostedCardPayment; reused: boolean }> {
+  const { config, customerId, value, dueDate, description, externalReference } = args
+  const query = new URLSearchParams({
+    externalReference,
+    billingType: 'CREDIT_CARD',
+    limit: '10',
+  })
+  const existing = await asaasFetch<{ data: AsaasHostedCardPayment[] }>(
+    config,
+    `/payments?${query.toString()}`,
+  )
+  const payment = existing.data[0]
+  if (payment) {
+    if (payment.customer && payment.customer !== customerId) {
+      throw new Error('A cobrança existente não pertence ao cliente esperado.')
+    }
+    if (typeof payment.value === 'number' && Math.round(payment.value * 100) !== Math.round(value * 100)) {
+      throw new Error('A cobrança existente não corresponde ao valor do pedido.')
+    }
+    if (!payment.invoiceUrl) throw new Error('O Asaas não retornou o link de pagamento.')
+    return { payment, reused: true }
+  }
+
+  const created = await asaasFetch<AsaasHostedCardPayment>(config, '/payments', {
+    method: 'POST',
+    body: JSON.stringify({
+      customer: customerId,
+      billingType: 'CREDIT_CARD',
+      value,
+      dueDate,
+      description,
+      externalReference,
+    }),
+  })
+  if (!created.invoiceUrl) throw new Error('O Asaas não retornou o link de pagamento.')
+  return { payment: created, reused: false }
 }
 
 // ============================================================

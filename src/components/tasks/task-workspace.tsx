@@ -26,6 +26,7 @@ import { toast } from 'sonner';
 import { TaskEditorDialog } from '@/components/tasks/task-editor-dialog';
 import { TaskQuickAdd } from '@/components/tasks/task-quick-add';
 import { TaskRow } from '@/components/tasks/task-row';
+import { TodayOperations } from '@/components/tasks/today-operations';
 import { useTaskResources } from '@/components/tasks/use-task-resources';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -65,6 +66,7 @@ interface TaskWorkspaceProps {
   view: TaskView;
   compact?: boolean;
   fixedContact?: { id: string; label: string } | null;
+  lockToMine?: boolean;
 }
 
 interface TaskSectionProps {
@@ -184,6 +186,7 @@ export function TaskWorkspace({
   view,
   compact = false,
   fixedContact = null,
+  lockToMine = false,
 }: TaskWorkspaceProps) {
   const t = useTranslations('Tasks');
   const locale = useLocale();
@@ -459,8 +462,10 @@ export function TaskWorkspace({
         </div>
       ) : null}
 
+      {!compact && view === 'today' ? <TodayOperations /> : null}
+
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div
+        {!lockToMine && <div
           role="group"
           aria-label={t('filters.assigneeLabel')}
           className="inline-flex rounded-lg border border-border bg-card p-1"
@@ -481,7 +486,7 @@ export function TaskWorkspace({
               {t(`filters.${filter}`)}
             </button>
           ))}
-        </div>
+        </div>}
         {compact ? (
           <Button
             type="button"

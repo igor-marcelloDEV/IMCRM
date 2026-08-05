@@ -1682,6 +1682,23 @@ async function handleReplyForActiveRun(
         })
         .eq("id", run.id);
       if (!capErr) {
+        // A flow asking for `name` is the bot's canonical name-capture
+        // path. Persist it on the CRM contact as well as in run vars so
+        // future conversations and orders stop displaying the phone number.
+        if (
+          cfg.var_key === "name" &&
+          run.contact_id &&
+          captured.length >= 2 &&
+          captured.length <= 120 &&
+          /\p{L}/u.test(captured) &&
+          !/^\+?\d[\d\s().-]+$/.test(captured)
+        ) {
+          await db
+            .from("contacts")
+            .update({ name: captured, updated_at: new Date().toISOString() })
+            .eq("id", run.contact_id)
+            .eq("account_id", run.account_id);
+        }
         // Mirror the UPDATE in-memory so downstream interpolation in
         // the advance loop sees the captured var without us having to
         // re-SELECT the whole row.
@@ -1980,6 +1997,13 @@ async function startNewRun(
   input: DispatchInboundInput,
   nodes: Map<string, FlowNodeRow>,
 ): Promise<DispatchInboundResult> {
+  const { data: storeAccount } = await db
+    .from("accounts")
+    .select("store_slug")
+    .eq("id", flow.account_id)
+    .maybeSingle();
+  const publicStoreId = (storeAccount as { store_slug?: string | null } | null)?.store_slug || flow.account_id;
+
   // INSERT — partial unique index `idx_one_active_run_per_contact`
   // catches concurrent inserts with 23505. We catch and return as
   // consumed:true (the parallel webhook handles it).
@@ -1999,6 +2023,9 @@ async function startNewRun(
       conversation_id: input.conversationId,
       status: "active",
       current_node_key: flow.entry_node_id,
+      vars: {
+        store_url: `${(process.env.NEXT_PUBLIC_SITE_URL || "https://crm.imdigitalsolutions.com.br").replace(/\/$/, "")}/loja/${publicStoreId}`,
+      },
     })
     .select("*")
     .maybeSingle();

@@ -109,6 +109,12 @@ function makeDb(options: DbOptions = {}) {
       configReads += 1;
       return selectBuilder(configReads === 1 ? authResult : invoiceResult);
     }
+    if (table === 'order_items') {
+      const result = { data: [{ total_cents: ORDER.total_cents, catalog_items: { offer_type: 'service' } }], error: null };
+      const builder = { select: vi.fn(), eq: vi.fn(async () => result) };
+      builder.select.mockReturnValue(builder);
+      return builder;
+    }
     throw new Error(`Unexpected table: ${table}`);
   });
   const rpc = vi.fn(() => ({

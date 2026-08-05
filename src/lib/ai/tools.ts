@@ -245,7 +245,7 @@ async function execMarkDealStatus(
   if (!deal) return { ok: false, summary: 'Nenhum negócio aberto para este contato' }
 
   await db.from('deals').update({ status }).eq('id', deal.id)
-  return { ok: true, summary: `Negócio marcado como "${status}"` }
+  return { ok: true, summary: `Negócio marcado como "${status === 'won' ? 'ganho' : 'perdido'}"` }
 }
 
 /** Execute one model-requested tool call and log the outcome (success

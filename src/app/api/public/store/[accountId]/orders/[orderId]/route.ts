@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/automations/admin-client";
+import { resolvePublicStoreAccount } from "@/lib/store/public-store";
 
 /**
  * GET /api/public/store/[accountId]/orders/[orderId] — the public
@@ -16,14 +17,18 @@ export async function GET(
 ) {
   const { accountId, orderId } = await params;
   const db = supabaseAdmin();
+  const account = await resolvePublicStoreAccount(db, accountId);
+  if (!account) {
+    return NextResponse.json({ error: "Loja não encontrada" }, { status: 404 });
+  }
 
   const { data: order } = await db
     .from("orders")
     .select(
-      "id, status, subtotal_cents, total_cents, currency, pix_copy_paste, pix_expires_at, invoice_status, created_at, paid_at",
+      "id, order_number, order_code, status, fulfillment_status, delivery_code_last4, subtotal_cents, total_cents, currency, pix_copy_paste, pix_expires_at, payment_method, payment_url, invoice_status, created_at, paid_at",
     )
     .eq("id", orderId)
-    .eq("account_id", accountId)
+    .eq("account_id", account.id)
     .maybeSingle();
   if (!order) {
     return NextResponse.json({ error: "Pedido não encontrado" }, { status: 404 });
@@ -35,15 +40,14 @@ export async function GET(
     .eq("order_id", orderId)
     .order("created_at", { ascending: true });
 
-  const { data: account } = await db
-    .from("accounts")
-    .select("name, logo_url")
-    .eq("id", accountId)
-    .maybeSingle();
-
   return NextResponse.json({
     order,
     items: items ?? [],
-    account: account ?? null,
+    account: {
+      name: account.name,
+      legal_name: account.legal_name,
+      cnpj: account.cnpj,
+      logo_url: account.logo_url,
+    },
   });
 }

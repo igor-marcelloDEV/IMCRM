@@ -134,6 +134,40 @@ describe('BaileysWorkerProvider', () => {
     );
   });
 
+  it('sendTemplate appends quick replies as numbered plain-text choices', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({ providerMessageKey: 'wa-msg-options' }),
+    });
+
+    const template: MessageTemplate = {
+      id: 't-options',
+      user_id: 'u-1',
+      name: 'continue_service',
+      category: 'Utility',
+      body_text: 'Olá, {{1}}! Deseja continuar?',
+      buttons: [
+        { type: 'QUICK_REPLY', text: 'Continuar atendimento' },
+        { type: 'QUICK_REPLY', text: 'Encerrar atendimento' },
+      ],
+      created_at: new Date().toISOString(),
+    };
+
+    const provider = makeProvider();
+    await provider.sendTemplate({
+      to: '5511999999999',
+      templateName: template.name,
+      template,
+      messageParams: { body: ['Maria'] },
+    });
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(init.body as string);
+    expect(body.text).toBe(
+      'Olá, Maria! Deseja continuar?\n\n1. Continuar atendimento\n2. Encerrar atendimento',
+    );
+  });
+
   it('sendTemplate falls back to the template name when no local template row is available', async () => {
     fetchMock.mockResolvedValue({
       ok: true,

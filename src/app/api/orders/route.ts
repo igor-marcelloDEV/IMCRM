@@ -60,7 +60,7 @@ export async function POST(request: Request) {
     p_event_type: "order.opened",
     p_entity_type: "order",
     p_entity_id: order.id,
-    p_summary: `Comanda #${order.order_number} aberta para ${contact.name || contact.phone}`,
+    p_summary: `Comanda #${order.order_code} aberta para ${contact.name || contact.phone}`,
     p_order_id: order.id,
     p_contact_id: contact.id,
   });
