@@ -17,6 +17,9 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ModeToggle } from "@/components/layout/mode-toggle";
+import { useInstallPrompt } from "@/hooks/use-install-prompt";
+import { Download } from "lucide-react";
+import { SyncStatusBadge } from "@/components/offline/sync-status-badge";
 
 const pageTitles: Record<string, string> = {
   "/dashboard": "dashboard",
@@ -59,6 +62,8 @@ export function Header({ onOpenSidebar }: HeaderProps) {
     profile?.email?.charAt(0)?.toUpperCase() ??
     "U";
 
+  const { canInstall, installed, promptInstall } = useInstallPrompt();
+
   return (
     <header className="flex h-14 shrink-0 items-center justify-between gap-3 border-b border-border bg-background px-4 lg:px-6">
       <div className="flex min-w-0 items-center gap-2">
@@ -77,6 +82,19 @@ export function Header({ onOpenSidebar }: HeaderProps) {
       </div>
 
       <div className="flex items-center gap-1 sm:gap-2">
+        <SyncStatusBadge />
+        {canInstall && !installed && (
+          <button
+            type="button"
+            onClick={() => void promptInstall()}
+            title={t("installApp")}
+            aria-label={t("installApp")}
+            className="flex h-9 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground sm:px-3"
+          >
+            <Download className="h-4 w-4" />
+            <span className="hidden sm:inline">{t("installApp")}</span>
+          </button>
+        )}
         <ModeToggle />
 
         <DropdownMenu>

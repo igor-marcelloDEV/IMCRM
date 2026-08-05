@@ -44,6 +44,7 @@ import {
 import { toast } from "sonner";
 import { useTranslations } from "next-intl";
 import { OrderItemsEditor } from "@/components/orders/order-items-editor";
+import { SYNCED_EVENT } from "@/lib/offline/outbox";
 import { InvoiceCard } from "@/components/orders/invoice-card";
 
 interface DealFormProps {
@@ -219,6 +220,27 @@ export function DealForm({
   // below create/maintain on first add (orders.deal_id). Only existing
   // deals have somewhere to attach items to — a not-yet-saved deal
   // shows no items section at all (see the JSX below).
+  const loadOrderItems = useCallback(async () => {
+    if (!deal) return;
+    const { data: orderRow } = await supabase
+      .from("orders")
+      .select("id, status, invoice_id, invoice_status")
+      .eq("deal_id", deal.id)
+      .maybeSingle();
+    if (!orderRow) {
+      setOrderItems([]);
+      setOrder(null);
+      return;
+    }
+    setOrder(orderRow);
+    const { data: items } = await supabase
+      .from("order_items")
+      .select("*, addons:order_item_addons(*)")
+      .eq("order_id", orderRow.id)
+      .order("created_at", { ascending: true });
+    setOrderItems((items as OrderItem[] | null) ?? []);
+  }, [deal, supabase]);
+
   useEffect(() => {
     if (!open || !deal) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -227,32 +249,20 @@ export function DealForm({
       setOrder(null);
       return;
     }
-    let cancelled = false;
-    (async () => {
-      const { data: orderRow } = await supabase
-        .from("orders")
-        .select("id, status, invoice_id, invoice_status")
-        .eq("deal_id", deal.id)
-        .maybeSingle();
-      if (!orderRow) {
-        if (!cancelled) {
-          setOrderItems([]);
-          setOrder(null);
-        }
-        return;
-      }
-      if (!cancelled) setOrder(orderRow);
-      const { data: items } = await supabase
-        .from("order_items")
-        .select("*, addons:order_item_addons(*)")
-        .eq("order_id", orderRow.id)
-        .order("created_at", { ascending: true });
-      if (!cancelled) setOrderItems((items as OrderItem[] | null) ?? []);
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [open, deal, supabase]);
+    void loadOrderItems();
+    // loadOrderItems is intentionally excluded: it's stable per `deal`
+    // already, re-including it here would just double-fire this effect.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, deal]);
+
+  // A queued offline item-add just landed on the server — refetch so
+  // it actually shows up (see src/lib/offline/outbox.ts).
+  useEffect(() => {
+    if (!open || !deal) return;
+    const onSynced = () => void loadOrderItems();
+    window.addEventListener(SYNCED_EVENT, onSynced);
+    return () => window.removeEventListener(SYNCED_EVENT, onSynced);
+  }, [open, deal, loadOrderItems]);
 
   // Fetch linked conversation for the selected contact (newest open one).
   // Clearing on no-selection is sync with prop state; the populated

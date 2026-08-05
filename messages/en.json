@@ -113,7 +113,8 @@
     "defaultAvatar": "Avatar",
     "menuProfile": "Profile",
     "menuSettings": "Settings",
-    "menuSignOut": "Sign out"
+    "menuSignOut": "Sign out",
+    "installApp": "Install app"
   },
   "ModeToggle": {
     "switchMode": "Switch to {mode} mode"

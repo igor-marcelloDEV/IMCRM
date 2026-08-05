@@ -56,6 +56,8 @@ const SECURITY_HEADERS = [
       // Supabase REST + realtime (WSS). All Meta API calls happen
       // server-side, so graph.facebook.com does not belong here.
       "connect-src 'self' https://*.supabase.co wss://*.supabase.co",
+      // Lets the dashboard's PWA service worker (public/sw.js) register/execute.
+      "worker-src 'self'",
       "frame-ancestors 'none'",
       "base-uri 'self'",
       "form-action 'self'",
@@ -134,6 +136,14 @@ const nextConfig: NextConfig = {
       {
         source: "/api/:path*",
         headers: [{ key: "Cache-Control", value: "no-store" }],
+      },
+      {
+        // The default rule below caches everything for up to 300s at
+        // the edge — fine for HTML, but a stale sw.js means an already
+        //-installed PWA can keep running yesterday's service worker
+        // for up to 5 minutes after a deploy fixes a bug in it.
+        source: "/sw.js",
+        headers: [{ key: "Cache-Control", value: "no-cache" }],
       },
       {
         source: "/:path((?!_next/static|_next/image|api).*)",

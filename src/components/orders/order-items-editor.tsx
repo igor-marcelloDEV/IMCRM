@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Minus, Plus, Settings2, Trash2 } from "lucide-react";
 import { CatalogPickerDialog } from "@/components/pipelines/catalog-picker-dialog";
 import { AddonsPickerDialog, type AddonSelection } from "@/components/orders/addons-picker-dialog";
+import { queueableFetch } from "@/lib/offline/outbox";
 
 interface OrderItemsEditorProps {
   items: OrderItem[];
@@ -51,17 +52,20 @@ export function OrderItemsEditor({
     async (catalogItemId: string, addOns?: AddonSelection[], applyToAll?: boolean) => {
       setBusy(true);
       try {
-        const res = await fetch(itemsEndpoint, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ catalog_item_id: catalogItemId, add_ons: addOns, apply_to_all: applyToAll }),
+        const result = await queueableFetch<{ items: OrderItem[] }>(itemsEndpoint, "POST", {
+          catalog_item_id: catalogItemId,
+          add_ons: addOns,
+          apply_to_all: applyToAll,
+        }).catch((err: Error) => {
+          toast.error(err.message || "Não foi possível adicionar o item.");
+          return null;
         });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          toast.error(data.error ?? "Não foi possível adicionar o item.");
+        if (!result) return;
+        if (!result.ok) {
+          toast.message("Sem conexão — o item será adicionado assim que a internet voltar.");
           return;
         }
-        onItemsChange((data.items ?? []) as OrderItem[]);
+        onItemsChange(result.data.items ?? []);
       } finally {
         setBusy(false);
       }

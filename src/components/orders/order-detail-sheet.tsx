@@ -35,6 +35,7 @@ import {
 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { OrderItemsEditor } from "@/components/orders/order-items-editor";
+import { SYNCED_EVENT } from "@/lib/offline/outbox";
 import { InvoiceCard } from "@/components/orders/invoice-card";
 import { ReceiptDialog } from "@/components/orders/receipt-dialog";
 
@@ -119,6 +120,15 @@ export function OrderDetailSheet({ open, onOpenChange, orderId, onSaved }: Order
       setItems([]);
       setPayments([]);
     }
+  }, [open, orderId, load]);
+
+  // A queued offline item-add just landed on the server — refetch so
+  // it actually shows up (see src/lib/offline/outbox.ts).
+  useEffect(() => {
+    if (!open || !orderId) return;
+    const onSynced = () => void load();
+    window.addEventListener(SYNCED_EVENT, onSynced);
+    return () => window.removeEventListener(SYNCED_EVENT, onSynced);
   }, [open, orderId, load]);
 
   const applyItemsResponse = useCallback((nextItems: OrderItem[]) => {

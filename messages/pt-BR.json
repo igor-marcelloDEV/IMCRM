@@ -113,7 +113,8 @@
     "defaultAvatar": "Avatar",
     "menuProfile": "Perfil",
     "menuSettings": "Configurações",
-    "menuSignOut": "Sair"
+    "menuSignOut": "Sair",
+    "installApp": "Instalar app"
   },
   "ModeToggle": {
     "switchMode": "Mudar para o modo {mode}"

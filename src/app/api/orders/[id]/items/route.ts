@@ -61,6 +61,11 @@ export async function POST(
         .map((a: { addon_id: string; quantity?: number }) => ({ addon_id: a.addon_id, quantity: a.quantity }))
     : [];
   const applyToAll = body?.apply_to_all === true;
+  // Set by the offline outbox (src/lib/offline/outbox.ts) when this
+  // POST is a replay of a request queued while offline — lets a retry
+  // after a partial success (server processed it, client never saw
+  // the response) no-op instead of double-adding.
+  const clientRequestId = typeof body?.client_request_id === "string" ? body.client_request_id : null;
 
   const db = supabaseAdmin();
 
@@ -78,6 +83,23 @@ export async function POST(
       { error: "Itens de um pedido finalizado ou já cobrado não podem ser alterados" },
       { status: 409 },
     );
+  }
+
+  if (clientRequestId) {
+    const { data: alreadyApplied } = await db
+      .from("order_items")
+      .select("id")
+      .eq("order_id", orderId)
+      .eq("client_request_id", clientRequestId)
+      .maybeSingle();
+    if (alreadyApplied) {
+      const { data: finalItems } = await db
+        .from("order_items")
+        .select("*, addons:order_item_addons(*)")
+        .eq("order_id", orderId)
+        .order("created_at", { ascending: true });
+      return NextResponse.json({ order_id: orderId, items: finalItems ?? [] });
+    }
   }
 
   const { data: item } = await db
@@ -118,7 +140,12 @@ export async function POST(
     resolved.addons.map((a) => ({ catalog_item_addon_id: a.catalog_item_addon_id, quantity: a.quantity })),
   );
 
-  const existingLine = await findMatchingOrderLine(db, orderId, item.id, signature);
+  // An offline-originated add always inserts a fresh line rather than
+  // merging into an existing one — keeps the idempotency key simple
+  // (one row owns it, full stop) at the cost of occasionally showing
+  // two lines for the same product instead of one at quantity 2; the
+  // total is identical either way.
+  const existingLine = clientRequestId ? null : await findMatchingOrderLine(db, orderId, item.id, signature);
   let touchedLineId: string;
 
   if (existingLine) {
@@ -138,6 +165,7 @@ export async function POST(
         quantity: 1,
         unit_price_cents: item.price_cents,
         total_cents: item.price_cents + extraUnitCents,
+        client_request_id: clientRequestId,
       })
       .select("id")
       .single();

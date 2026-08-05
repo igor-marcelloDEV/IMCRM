@@ -68,6 +68,7 @@ export async function POST(
         .map((a: { addon_id: string; quantity?: number }) => ({ addon_id: a.addon_id, quantity: a.quantity }))
     : [];
   const applyToAll = body?.apply_to_all === true;
+  const clientRequestId = typeof body?.client_request_id === 'string' ? body.client_request_id : null;
 
   const db = supabaseAdmin();
 
@@ -142,6 +143,23 @@ export async function POST(
     order = created;
   }
 
+  if (clientRequestId) {
+    const { data: alreadyApplied } = await db
+      .from('order_items')
+      .select('id')
+      .eq('order_id', order.id)
+      .eq('client_request_id', clientRequestId)
+      .maybeSingle();
+    if (alreadyApplied) {
+      const { data: finalItems } = await db
+        .from('order_items')
+        .select('*, addons:order_item_addons(*)')
+        .eq('order_id', order.id)
+        .order('created_at', { ascending: true });
+      return NextResponse.json({ order_id: order.id, items: finalItems ?? [] });
+    }
+  }
+
   const resolved = await resolveOrderItemAddons(db, item.id, requestedAddons);
   if (!resolved.ok) return NextResponse.json({ error: resolved.error }, { status: 400 });
   const extraUnitCents = addonsUnitCents(resolved.addons);
@@ -149,7 +167,7 @@ export async function POST(
     resolved.addons.map((a) => ({ catalog_item_addon_id: a.catalog_item_addon_id, quantity: a.quantity })),
   );
 
-  const existingLine = await findMatchingOrderLine(db, order.id, item.id, signature);
+  const existingLine = clientRequestId ? null : await findMatchingOrderLine(db, order.id, item.id, signature);
   let touchedLineId: string;
 
   if (existingLine) {
@@ -169,6 +187,7 @@ export async function POST(
         quantity: 1,
         unit_price_cents: item.price_cents,
         total_cents: item.price_cents + extraUnitCents,
+        client_request_id: clientRequestId,
       })
       .select('id')
       .single();
