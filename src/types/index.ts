@@ -827,6 +827,9 @@ export interface CatalogItem {
   fiscal_unit: string;
   created_at: string;
   updated_at: string;
+  /** Eager-loaded where needed (order-item editors, storefront) — absent
+   *  means "not fetched", not "no add-on groups configured". */
+  addon_groups?: CatalogItemAddonGroup[];
 }
 
 export type OrderStatus = 'pending_payment' | 'paid' | 'canceled';
@@ -894,6 +897,9 @@ export interface Order {
   delivery_lng: number | null;
   delivery_fee_cents: number;
   driver_agreed_pickup_at: string | null;
+  /** When `fulfillment_type === 'pickup'` — the booked in-store slot
+   *  (migration 083), capacity-checked against `accounts.pickup_capacity_per_slot`. */
+  pickup_scheduled_at: string | null;
 }
 
 export interface DeliveryDriver {
@@ -946,6 +952,52 @@ export interface OrderItem {
   unit_price_cents: number;
   total_cents: number;
   created_at: string;
+  /** Eager-loaded by the order-items endpoints; absent means "not fetched",
+   *  not "no add-ons". */
+  addons?: OrderItemAddon[];
+}
+
+/** A product-level add-on group (e.g. "Calda", required, pick 1 of N) —
+ *  configured in the Catalog Manager, migration 082. */
+export interface CatalogItemAddonGroup {
+  id: string;
+  account_id: string;
+  catalog_item_id: string;
+  name: string;
+  required: boolean;
+  min_select: number;
+  max_select: number;
+  position: number;
+  options: CatalogItemAddon[];
+}
+
+export interface CatalogItemAddon {
+  id: string;
+  group_id: string;
+  name: string;
+  price_cents: number;
+  is_active: boolean;
+  position: number;
+}
+
+/** Frozen selection on an order line — name/price never re-read live
+ *  from catalog_item_addons after the order is placed. */
+export interface OrderItemAddon {
+  id: string;
+  order_item_id: string;
+  catalog_item_addon_id: string | null;
+  name_snapshot: string;
+  price_cents_snapshot: number;
+  quantity: number;
+}
+
+export interface CartItemAddon {
+  id: string;
+  cart_item_id: string;
+  catalog_item_addon_id: string | null;
+  name_snapshot: string;
+  price_cents_snapshot: number;
+  quantity: number;
 }
 
 /** 'card' stays valid for rows recorded before the debit/credit split

@@ -514,6 +514,8 @@ const CATALOG_CHECKOUT_REPLY_ID = "__checkout__";
 const CHECKOUT_FINALIZE_REPLY_ID = "__finalize__";
 const MAX_CATALOG_ROWS = 9; // + the reserved checkout row = Meta's 10-row cap
 const MAX_UPSELL_ROWS = 9;
+const MAX_ADDON_ROWS = 9; // + the reserved "Concluir"/"Próximo" row, same 10-row cap
+const ADDON_DONE_REPLY_ID = "__addon_done__";
 const DEFAULT_CPF_PROMPT =
   "Pra emitir a cobrança, me informa seu CPF ou CNPJ:";
 const INVALID_CPF_CNPJ_PROMPT =
@@ -673,6 +675,283 @@ export async function addCatalogItemToCart(
     assertCheckoutDbSuccess("insert cart line", error);
   }
   return { name: typedItem.name };
+}
+
+// ============================================================
+// Catalog item add-ons ("adicionais") — a product-level detour off
+// the normal show_catalog/checkout tap-to-add flow. Implemented as a
+// `vars`-tracked sub-state of whichever node is currently active
+// (same "scratch space" pattern as `__checkout_awaiting_cpf` above),
+// NOT a new node type: which product needs add-ons is a runtime fact
+// (which row the customer tapped), not something wired on the flow
+// canvas. `run.current_node_key` never moves during this sub-flow, so
+// `currentNode` in `handleReplyForActiveRun` is always the right node
+// to resume into once the selection is confirmed.
+// ============================================================
+
+interface CatalogAddonOption {
+  id: string;
+  name: string;
+  price_cents: number;
+}
+interface CatalogAddonGroup {
+  id: string;
+  name: string;
+  required: boolean;
+  min_select: number;
+  max_select: number;
+  options: CatalogAddonOption[];
+}
+interface AddonFlowState {
+  catalogItemId: string;
+  groupIndex: number;
+  /** group id -> selected option ids, accumulated across the whole flow. */
+  selection: Record<string, string[]>;
+}
+
+async function loadCatalogItemAddonGroups(
+  db: AdminClient,
+  catalogItemId: string,
+): Promise<CatalogAddonGroup[]> {
+  const { data, error } = await db
+    .from("catalog_item_addon_groups")
+    .select(
+      "id, name, required, min_select, max_select, position, options:catalog_item_addons(id, name, price_cents, is_active, position)",
+    )
+    .eq("catalog_item_id", catalogItemId)
+    .order("position", { ascending: true });
+  assertCheckoutDbSuccess("load catalog item addon groups", error);
+  interface Row {
+    id: string;
+    name: string;
+    required: boolean;
+    min_select: number;
+    max_select: number;
+    position: number;
+    options: Array<CatalogAddonOption & { is_active: boolean; position: number }>;
+  }
+  const groups = ((data as Row[] | null) ?? []).map((g) => ({
+    ...g,
+    options: g.options.filter((o) => o.is_active).sort((a, b) => a.position - b.position),
+  }));
+  return groups.sort((a, b) => a.position - b.position);
+}
+
+function readAddonFlowState(vars: Record<string, unknown>): AddonFlowState | null {
+  const catalogItemId = vars.__addons_catalog_item_id;
+  if (typeof catalogItemId !== "string") return null;
+  const groupIndex = typeof vars.__addons_group_index === "number" ? vars.__addons_group_index : 0;
+  const selection =
+    vars.__addons_selection && typeof vars.__addons_selection === "object"
+      ? (vars.__addons_selection as Record<string, string[]>)
+      : {};
+  return { catalogItemId, groupIndex, selection };
+}
+
+function writeAddonFlowState(
+  vars: Record<string, unknown>,
+  state: AddonFlowState | null,
+): Record<string, unknown> {
+  const next = { ...vars };
+  delete next.__addons_catalog_item_id;
+  delete next.__addons_group_index;
+  delete next.__addons_selection;
+  if (!state) return next;
+  next.__addons_catalog_item_id = state.catalogItemId;
+  next.__addons_group_index = state.groupIndex;
+  next.__addons_selection = state.selection;
+  return next;
+}
+
+/** Renders the current group as a WhatsApp list — ✅-prefixed titles
+ *  for already-selected options (the same "re-render the same node"
+ *  loop show_catalog/checkout already use for their own taps), a
+ *  trailing "Concluir"/"Próximo" row, truncated to MAX_ADDON_ROWS. */
+async function sendAddonGroupAndSuspend(
+  db: AdminClient,
+  run: FlowRunRow,
+  node: FlowNodeRow,
+  state: AddonFlowState,
+  groups: CatalogAddonGroup[],
+): Promise<void> {
+  const group = groups[state.groupIndex];
+  const currency = await loadAccountCurrency(db, run.account_id);
+  const selectedIds = state.selection[group.id] ?? [];
+
+  const rows = group.options.slice(0, MAX_ADDON_ROWS).map((opt) => ({
+    id: opt.id,
+    title: truncateForList(`${selectedIds.includes(opt.id) ? "✅ " : ""}${opt.name}`, 24),
+    description: opt.price_cents > 0 ? `+ ${formatCents(opt.price_cents, currency)}` : "",
+  }));
+
+  const satisfied = selectedIds.length >= group.min_select && selectedIds.length <= group.max_select;
+  const isLastGroup = state.groupIndex === groups.length - 1;
+  rows.push({
+    id: ADDON_DONE_REPLY_ID,
+    title: isLastGroup ? "✅ Concluir" : "➡️ Próximo",
+    description: satisfied
+      ? ""
+      : `Escolha ${group.min_select === group.max_select ? group.min_select : `${group.min_select}-${group.max_select}`}`,
+  });
+
+  const requirement = !group.required
+    ? `Opcional — até ${group.max_select}.`
+    : group.max_select > 1
+      ? `Escolha de ${group.min_select} a ${group.max_select} opções.`
+      : "Escolha 1 opção.";
+  const bodyText = `${group.name}\n${requirement}`;
+
+  const { whatsapp_message_id } = await engineSendInteractiveList({
+    accountId: run.account_id,
+    userId: run.user_id,
+    conversationId: run.conversation_id!,
+    contactId: run.contact_id!,
+    bodyText,
+    buttonLabel: "Ver opções",
+    sections: [{ rows }],
+  });
+  await logEvent(db, run.id, "message_sent", node.node_key, {
+    node_type: "addon_group",
+    whatsapp_message_id,
+  });
+  const { data: msg, error: messageError } = await db
+    .from("messages")
+    .select("id")
+    .eq("message_id", whatsapp_message_id)
+    .maybeSingle();
+  assertCheckoutDbSuccess("load addon group prompt message", messageError);
+  const { error: promptError } = await db
+    .from("flow_runs")
+    .update({ last_prompt_message_id: (msg as { id: string } | null)?.id ?? null })
+    .eq("id", run.id);
+  assertCheckoutDbSuccess("save addon group prompt message", promptError);
+}
+
+/** Entry point from a catalog/checkout list tap on a product that has
+ *  add-on groups — verifies the id is still a live item, parks the
+ *  run in addon-flow state, and sends the first group. Returns false
+ *  (no-op, caller falls through to the normal fallback policy) for a
+ *  stale/tampered id, same as `addCatalogItemToCart`'s own guard. */
+async function startAddonFlow(
+  db: AdminClient,
+  run: FlowRunRow,
+  node: FlowNodeRow,
+  catalogItemId: string,
+  groups: CatalogAddonGroup[],
+): Promise<boolean> {
+  const { data: item, error } = await db
+    .from("catalog_items")
+    .select("id")
+    .eq("account_id", run.account_id)
+    .eq("id", catalogItemId)
+    .eq("is_active", true)
+    .maybeSingle();
+  assertCheckoutDbSuccess("verify catalog item for addon flow", error);
+  if (!item) return false;
+
+  const state: AddonFlowState = { catalogItemId, groupIndex: 0, selection: {} };
+  const nextVars = writeAddonFlowState(run.vars, state);
+  await persistCheckoutRunVars(db, run, nextVars);
+  run.vars = nextVars;
+  await sendAddonGroupAndSuspend(db, run, node, state, groups);
+  return true;
+}
+
+/**
+ * Commits a finished selection into the contact's open cart — merges
+ * into an existing line with the exact same signature (same "tap
+ * twice, quantity goes up" behavior as a plain no-addon item), or
+ * inserts a fresh line + its cart_item_addons rows.
+ */
+async function finalizeAddonSelection(
+  db: AdminClient,
+  run: FlowRunRow,
+  state: AddonFlowState,
+  groups: CatalogAddonGroup[],
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  for (const group of groups) {
+    const count = (state.selection[group.id] ?? []).length;
+    if (group.required && count === 0) {
+      return { ok: false, error: `Selecione ao menos uma opção em "${group.name}".` };
+    }
+    if (count > 0 && (count < group.min_select || count > group.max_select)) {
+      return { ok: false, error: `"${group.name}" exige entre ${group.min_select} e ${group.max_select} opções.` };
+    }
+  }
+
+  const { data: item, error: itemError } = await db
+    .from("catalog_items")
+    .select("id, name, price_cents")
+    .eq("account_id", run.account_id)
+    .eq("id", state.catalogItemId)
+    .eq("is_active", true)
+    .maybeSingle();
+  assertCheckoutDbSuccess("load catalog item for addon finalize", itemError);
+  if (!item) return { ok: false, error: "Item não encontrado." };
+  const typedItem = item as { id: string; name: string; price_cents: number };
+
+  const optionById = new Map(groups.flatMap((g) => g.options).map((o) => [o.id, o]));
+  const selectedIds = Object.values(state.selection).flat();
+  // Deterministic, sortable string — not a hash — mirrors the
+  // internal order-items convention (order-item-addons.ts) so a
+  // support query can read it directly. Every selected option counts
+  // once (qty 1) — the flow engine has no per-addon quantity stepper.
+  const signature = [...selectedIds].sort().map((id) => `${id}:1`).join(",");
+
+  const cartId = await getOrCreateOpenCart(db, {
+    accountId: run.account_id,
+    contactId: run.contact_id!,
+    conversationId: run.conversation_id,
+  });
+
+  const { data: existingLine, error: existingError } = await db
+    .from("cart_items")
+    .select("id, quantity")
+    .eq("cart_id", cartId)
+    .eq("catalog_item_id", typedItem.id)
+    .eq("addons_signature", signature)
+    .maybeSingle();
+  assertCheckoutDbSuccess("load matching addon cart line", existingError);
+
+  if (existingLine) {
+    const typedLine = existingLine as { id: string; quantity: number };
+    const { error } = await db
+      .from("cart_items")
+      .update({ quantity: typedLine.quantity + 1 })
+      .eq("id", typedLine.id);
+    assertCheckoutDbSuccess("increment addon cart line", error);
+    return { ok: true };
+  }
+
+  const { data: newLine, error: insertError } = await db
+    .from("cart_items")
+    .insert({
+      cart_id: cartId,
+      catalog_item_id: typedItem.id,
+      quantity: 1,
+      unit_price_cents: typedItem.price_cents,
+      addons_signature: signature,
+    })
+    .select("id")
+    .single();
+  assertCheckoutDbSuccess("insert addon cart line", insertError);
+
+  if (selectedIds.length > 0) {
+    const { error: addonInsertError } = await db.from("cart_item_addons").insert(
+      selectedIds.map((id) => {
+        const opt = optionById.get(id)!;
+        return {
+          cart_item_id: (newLine as { id: string }).id,
+          catalog_item_addon_id: opt.id,
+          name_snapshot: opt.name,
+          price_cents_snapshot: opt.price_cents,
+          quantity: 1,
+        };
+      }),
+    );
+    assertCheckoutDbSuccess("insert addon cart line addons", addonInsertError);
+  }
+  return { ok: true };
 }
 
 interface CartLine {
@@ -1655,6 +1934,92 @@ async function handleReplyForActiveRun(
   let matched: string | null = null;
   if (
     message.kind === "interactive_reply" &&
+    typeof run.vars.__addons_catalog_item_id === "string"
+  ) {
+    // An add-ons sub-flow is in progress — this takes priority over
+    // the node-type branches below regardless of whether we're parked
+    // on a show_catalog or checkout node; `run.current_node_key` never
+    // moves during the sub-flow, so `currentNode` is always the
+    // correct node to resume once it's done.
+    const state = readAddonFlowState(run.vars)!;
+    const groups = await loadCatalogItemAddonGroups(db, state.catalogItemId);
+    const group = groups[state.groupIndex];
+
+    if (!group) {
+      // Defensive — product/group config changed mid-flow. Don't strand the run.
+      const clearedVars = writeAddonFlowState(run.vars, null);
+      await persistCheckoutRunVars(db, run, clearedVars);
+      run.vars = clearedVars;
+      matched = currentNode.node_key;
+    } else if (message.reply_id === ADDON_DONE_REPLY_ID) {
+      const selectedIds = state.selection[group.id] ?? [];
+      const satisfied = selectedIds.length >= group.min_select && selectedIds.length <= group.max_select;
+      if (!satisfied) {
+        // Re-render the same group — its own "Concluir/Próximo" row
+        // description already nudges the min/max requirement.
+        await sendAddonGroupAndSuspend(db, run, currentNode, state, groups);
+        return { consumed: true, flow_run_id: run.id, outcome: "advanced" };
+      }
+      if (state.groupIndex < groups.length - 1) {
+        const nextState: AddonFlowState = { ...state, groupIndex: state.groupIndex + 1 };
+        const nextVars = writeAddonFlowState(run.vars, nextState);
+        await persistCheckoutRunVars(db, run, nextVars);
+        run.vars = nextVars;
+        await sendAddonGroupAndSuspend(db, run, currentNode, nextState, groups);
+        return { consumed: true, flow_run_id: run.id, outcome: "advanced" };
+      }
+      // Last group confirmed — commit the selection to the cart and
+      // fall back into the normal show_catalog/checkout loop.
+      const result = await finalizeAddonSelection(db, run, state, groups);
+      const clearedVars = writeAddonFlowState(run.vars, null);
+      await persistCheckoutRunVars(db, run, clearedVars);
+      run.vars = clearedVars;
+      if (!result.ok) {
+        try {
+          await engineSendText({
+            accountId: run.account_id,
+            userId: run.user_id,
+            conversationId: run.conversation_id!,
+            contactId: run.contact_id!,
+            text: result.error,
+          });
+        } catch {
+          // Best-effort — the loop re-render below still gets the
+          // customer unstuck even if this particular text fails.
+        }
+      }
+      matched = currentNode.node_key;
+    } else {
+      const isValidOption = group.options.some((o) => o.id === message.reply_id);
+      if (!isValidOption) {
+        // Stale id from an old render of this same list — re-show it unchanged.
+        await sendAddonGroupAndSuspend(db, run, currentNode, state, groups);
+        return { consumed: true, flow_run_id: run.id, outcome: "advanced" };
+      }
+      const current = state.selection[group.id] ?? [];
+      const isSelected = current.includes(message.reply_id);
+      let nextForGroup: string[];
+      if (isSelected) {
+        nextForGroup = current.filter((id) => id !== message.reply_id);
+      } else if (group.max_select <= 1) {
+        nextForGroup = [message.reply_id];
+      } else if (current.length >= group.max_select) {
+        nextForGroup = current; // already at the group's cap — ignore the tap
+      } else {
+        nextForGroup = [...current, message.reply_id];
+      }
+      const nextState: AddonFlowState = {
+        ...state,
+        selection: { ...state.selection, [group.id]: nextForGroup },
+      };
+      const nextVars = writeAddonFlowState(run.vars, nextState);
+      await persistCheckoutRunVars(db, run, nextVars);
+      run.vars = nextVars;
+      await sendAddonGroupAndSuspend(db, run, currentNode, nextState, groups);
+      return { consumed: true, flow_run_id: run.id, outcome: "advanced" };
+    }
+  } else if (
+    message.kind === "interactive_reply" &&
     (currentNode.node_type === "send_buttons" ||
       currentNode.node_type === "send_list")
   ) {
@@ -1737,17 +2102,26 @@ async function handleReplyForActiveRun(
     if (message.reply_id === CATALOG_CHECKOUT_REPLY_ID) {
       matched = cfg.next_node_key;
     } else {
-      const added = await addCatalogItemToCart(db, {
-        accountId: run.account_id,
-        contactId: run.contact_id!,
-        conversationId: run.conversation_id,
-        catalogItemId: message.reply_id,
-      });
-      // Loop — re-send the same node so the customer sees the updated
-      // cart total and can keep browsing. A stale/tampered reply_id
-      // (added === null) falls through to the fallback policy below,
-      // same as an unrecognized send_buttons/send_list tap.
-      if (added) matched = currentNode.node_key;
+      const addonGroups = await loadCatalogItemAddonGroups(db, message.reply_id);
+      if (addonGroups.length > 0) {
+        // Detour into the add-ons sub-flow instead of adding directly
+        // — a stale/tampered id (started === false) falls through to
+        // the fallback policy below, matched stays null.
+        const started = await startAddonFlow(db, run, currentNode, message.reply_id, addonGroups);
+        if (started) return { consumed: true, flow_run_id: run.id, outcome: "advanced" };
+      } else {
+        const added = await addCatalogItemToCart(db, {
+          accountId: run.account_id,
+          contactId: run.contact_id!,
+          conversationId: run.conversation_id,
+          catalogItemId: message.reply_id,
+        });
+        // Loop — re-send the same node so the customer sees the updated
+        // cart total and can keep browsing. A stale/tampered reply_id
+        // (added === null) falls through to the fallback policy below,
+        // same as an unrecognized send_buttons/send_list tap.
+        if (added) matched = currentNode.node_key;
+      }
     }
   } else if (
     message.kind === "interactive_reply" &&
@@ -1819,13 +2193,19 @@ async function handleReplyForActiveRun(
         return { consumed: true, flow_run_id: run.id, outcome: "advanced" };
       }
     } else {
-      const added = await addCatalogItemToCart(db, {
-        accountId: run.account_id,
-        contactId: run.contact_id!,
-        conversationId: run.conversation_id,
-        catalogItemId: message.reply_id,
-      });
-      if (added) matched = currentNode.node_key;
+      const addonGroups = await loadCatalogItemAddonGroups(db, message.reply_id);
+      if (addonGroups.length > 0) {
+        const started = await startAddonFlow(db, run, currentNode, message.reply_id, addonGroups);
+        if (started) return { consumed: true, flow_run_id: run.id, outcome: "advanced" };
+      } else {
+        const added = await addCatalogItemToCart(db, {
+          accountId: run.account_id,
+          contactId: run.contact_id!,
+          conversationId: run.conversation_id,
+          catalogItemId: message.reply_id,
+        });
+        if (added) matched = currentNode.node_key;
+      }
     }
   } else if (
     message.kind === "text" &&

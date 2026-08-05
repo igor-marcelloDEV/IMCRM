@@ -6,7 +6,9 @@ export async function resolvePublicStoreAccount(db: SupabaseClient, identifier: 
   const normalized = decodeURIComponent(identifier).trim().toLowerCase();
   const query = db
     .from("accounts")
-    .select("id, owner_user_id, name, legal_name, cnpj, logo_url, store_slug");
+    .select(
+      "id, owner_user_id, name, legal_name, cnpj, logo_url, store_slug, store_lat, store_lng, pickup_slot_minutes, pickup_capacity_per_slot, store_opens_at, store_closes_at",
+    );
 
   const { data } = UUID_PATTERN.test(normalized)
     ? await query.eq("id", normalized).maybeSingle()

@@ -24,9 +24,6 @@ import {
 } from "@/components/ui/select";
 import {
   Loader2,
-  Minus,
-  Plus,
-  Trash2,
   Receipt,
   Wallet,
   User,
@@ -37,7 +34,7 @@ import {
   MessageCircle,
 } from "lucide-react";
 import { useTranslations } from "next-intl";
-import { CatalogPickerDialog } from "@/components/pipelines/catalog-picker-dialog";
+import { OrderItemsEditor } from "@/components/orders/order-items-editor";
 import { InvoiceCard } from "@/components/orders/invoice-card";
 import { ReceiptDialog } from "@/components/orders/receipt-dialog";
 
@@ -75,8 +72,6 @@ export function OrderDetailSheet({ open, onOpenChange, orderId, onSaved }: Order
   const [payments, setPayments] = useState<OrderPayment[]>([]);
   const [catalogItems, setCatalogItems] = useState<CatalogItem[]>([]);
 
-  const [itemsBusy, setItemsBusy] = useState(false);
-  const [pickerOpen, setPickerOpen] = useState(false);
   const [receiptOpen, setReceiptOpen] = useState(false);
 
   const [paymentMethod, setPaymentMethod] = useState<OrderPaymentMethod>("cash");
@@ -93,13 +88,17 @@ export function OrderDetailSheet({ open, onOpenChange, orderId, onSaved }: Order
     const [{ data: orderRow }, { data: itemRows }, { data: paymentRows }, { data: catalog }] =
       await Promise.all([
         supabase.from("orders").select("*, contact:contacts(*), deal:deals(pipeline:pipelines(name), stage:pipeline_stages(name))").eq("id", orderId).maybeSingle(),
-        supabase.from("order_items").select("*").eq("order_id", orderId).order("created_at"),
+        supabase.from("order_items").select("*, addons:order_item_addons(*)").eq("order_id", orderId).order("created_at"),
         supabase
           .from("order_payments")
           .select("*")
           .eq("order_id", orderId)
           .order("created_at"),
-        supabase.from("catalog_items").select("*").eq("is_active", true).order("position"),
+        supabase
+          .from("catalog_items")
+          .select("*, addon_groups:catalog_item_addon_groups(id,account_id,catalog_item_id,name,required,min_select,max_select,position,options:catalog_item_addons(id,group_id,name,price_cents,is_active,position))")
+          .eq("is_active", true)
+          .order("position"),
       ]);
     const o = (orderRow as (Order & { contact: Contact | null; deal: { pipeline: { name: string } | null; stage: { name: string } | null } | null }) | null) ?? null;
     setOrder(o);
@@ -128,58 +127,9 @@ export function OrderDetailSheet({ open, onOpenChange, orderId, onSaved }: Order
     setOrder((prev) => (prev ? { ...prev, subtotal_cents: totalCents, total_cents: totalCents } : prev));
   }, []);
 
-  const addCatalogItem = useCallback(
-    async (catalogItemId: string) => {
-      if (!order) return;
-      setItemsBusy(true);
-      try {
-        const res = await fetch(`/api/orders/${order.id}/items`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ catalog_item_id: catalogItemId }),
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          toast.error(data.error ?? t("toastFailed"));
-          return;
-        }
-        applyItemsResponse((data.items ?? []) as OrderItem[]);
-      } finally {
-        setItemsBusy(false);
-      }
-    },
-    [order, applyItemsResponse, t],
-  );
-
-  const setItemQuantity = useCallback(
-    async (itemId: string, quantity: number) => {
-      if (!order) return;
-      setItemsBusy(true);
-      try {
-        const res = await fetch(`/api/orders/${order.id}/items/${itemId}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ quantity }),
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          toast.error(data.error ?? t("toastFailed"));
-          return;
-        }
-        applyItemsResponse((data.items ?? []) as OrderItem[]);
-      } finally {
-        setItemsBusy(false);
-      }
-    },
-    [order, applyItemsResponse, t],
-  );
-
   const paidCents = payments.reduce((s, p) => s + p.amount_cents, 0);
   const balanceCents = Math.max(0, (order?.total_cents ?? 0) - paidCents);
   const isOpen = order?.status === "pending_payment";
-  const availableCatalogItems = catalogItems.filter(
-    (c) => !items.some((oi) => oi.catalog_item_id === c.id),
-  );
 
   async function recordPayment() {
     if (!order) return;
@@ -376,69 +326,15 @@ export function OrderDetailSheet({ open, onOpenChange, orderId, onSaved }: Order
 
                 <FormSection title={t("sectionItems")}>
                   <div className="rounded-lg border border-border bg-muted/40 p-3">
-                    {items.length > 0 && (
-                      <ul className="mb-2 space-y-1.5">
-                        {items.map((line) => (
-                          <li key={line.id} className="flex items-center gap-2 text-xs">
-                            <span className="min-w-0 flex-1 truncate text-foreground">
-                              {line.name_snapshot}
-                            </span>
-                            {isOpen ? (
-                              <div className="flex shrink-0 items-center gap-1">
-                                <button
-                                  type="button"
-                                  disabled={itemsBusy}
-                                  onClick={() => setItemQuantity(line.id, line.quantity - 1)}
-                                  className="flex h-5 w-5 items-center justify-center rounded border border-border text-muted-foreground hover:bg-muted disabled:opacity-50"
-                                >
-                                  <Minus className="h-3 w-3" />
-                                </button>
-                                <span className="w-4 text-center text-foreground">{line.quantity}</span>
-                                <button
-                                  type="button"
-                                  disabled={itemsBusy}
-                                  onClick={() => setItemQuantity(line.id, line.quantity + 1)}
-                                  className="flex h-5 w-5 items-center justify-center rounded border border-border text-muted-foreground hover:bg-muted disabled:opacity-50"
-                                >
-                                  <Plus className="h-3 w-3" />
-                                </button>
-                              </div>
-                            ) : (
-                              <span className="shrink-0 text-muted-foreground">×{line.quantity}</span>
-                            )}
-                            <span className="w-16 shrink-0 text-right text-muted-foreground">
-                              {formatCurrency(line.total_cents / 100, order.currency)}
-                            </span>
-                            {isOpen && (
-                              <button
-                                type="button"
-                                disabled={itemsBusy}
-                                onClick={() => setItemQuantity(line.id, 0)}
-                                className="shrink-0 text-red-400 hover:text-red-300 disabled:opacity-50"
-                              >
-                                <Trash2 className="h-3 w-3" />
-                              </button>
-                            )}
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                    {isOpen &&
-                      (availableCatalogItems.length > 0 ? (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          disabled={itemsBusy}
-                          onClick={() => setPickerOpen(true)}
-                          className="h-8 w-full justify-start gap-1.5 bg-card text-xs"
-                        >
-                          <Plus className="h-3.5 w-3.5" />
-                          {t("items.addPlaceholder")}
-                        </Button>
-                      ) : items.length === 0 ? (
-                        <p className="text-xs text-muted-foreground">{t("items.emptyCatalog")}</p>
-                      ) : null)}
+                    <OrderItemsEditor
+                      items={items}
+                      catalogItems={catalogItems}
+                      currency={order.currency}
+                      editable={isOpen}
+                      itemsEndpoint={`/api/orders/${order.id}/items`}
+                      onItemsChange={applyItemsResponse}
+                      emptyCatalogSlot={<p className="text-xs text-muted-foreground">{t("items.emptyCatalog")}</p>}
+                    />
                   </div>
 
                   <div className="flex items-center justify-between rounded-lg border border-border bg-muted/40 px-3 py-2">
@@ -560,17 +456,6 @@ export function OrderDetailSheet({ open, onOpenChange, orderId, onSaved }: Order
           )}
         </div>
       </SheetContent>
-
-      <CatalogPickerDialog
-        open={pickerOpen}
-        onOpenChange={setPickerOpen}
-        items={availableCatalogItems}
-        currency={order?.currency ?? "BRL"}
-        busy={itemsBusy}
-        onAdd={(id) => {
-          void addCatalogItem(id);
-        }}
-      />
 
       {order && (
         <ReceiptDialog

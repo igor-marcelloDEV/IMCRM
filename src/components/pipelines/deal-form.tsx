@@ -40,12 +40,10 @@ import {
   DollarSign,
   Loader2,
   Package,
-  Minus,
-  Plus,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslations } from "next-intl";
-import { CatalogPickerDialog } from "./catalog-picker-dialog";
+import { OrderItemsEditor } from "@/components/orders/order-items-editor";
 import { InvoiceCard } from "@/components/orders/invoice-card";
 
 interface DealFormProps {
@@ -117,8 +115,6 @@ export function DealForm({
 
   const [catalogItems, setCatalogItems] = useState<CatalogItem[]>([]);
   const [orderItems, setOrderItems] = useState<OrderItem[]>([]);
-  const [itemsBusy, setItemsBusy] = useState(false);
-  const [pickerOpen, setPickerOpen] = useState(false);
   const [order, setOrder] = useState<{
     id: string;
     status: string;
@@ -174,7 +170,11 @@ export function DealForm({
       const [c, p, ci, pl] = await Promise.all([
         supabase.from("contacts").select("*").order("name"),
         supabase.from("profiles").select("*").order("full_name"),
-        supabase.from("catalog_items").select("*").eq("is_active", true).order("position"),
+        supabase
+          .from("catalog_items")
+          .select("*, addon_groups:catalog_item_addon_groups(id,account_id,catalog_item_id,name,required,min_select,max_select,position,options:catalog_item_addons(id,group_id,name,price_cents,is_active,position))")
+          .eq("is_active", true)
+          .order("position"),
         supabase.from("pipelines").select("id, name").order("name"),
       ]);
       if (cancelled) return;
@@ -244,7 +244,7 @@ export function DealForm({
       if (!cancelled) setOrder(orderRow);
       const { data: items } = await supabase
         .from("order_items")
-        .select("*")
+        .select("*, addons:order_item_addons(*)")
         .eq("order_id", orderRow.id)
         .order("created_at", { ascending: true });
       if (!cancelled) setOrderItems((items as OrderItem[] | null) ?? []);
@@ -289,52 +289,6 @@ export function DealForm({
     // back on every keystroke.
     setValue(String(totalCents / 100));
   }, []);
-
-  const addCatalogItem = useCallback(
-    async (catalogItemId: string) => {
-      if (!deal) return;
-      setItemsBusy(true);
-      try {
-        const res = await fetch(`/api/deals/${deal.id}/items`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ catalog_item_id: catalogItemId }),
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          toast.error(data.error ?? t("items.toastFailed"));
-          return;
-        }
-        applyItemsResponse((data.items ?? []) as OrderItem[]);
-      } finally {
-        setItemsBusy(false);
-      }
-    },
-    [deal, applyItemsResponse, t],
-  );
-
-  const setItemQuantity = useCallback(
-    async (itemId: string, quantity: number) => {
-      if (!deal) return;
-      setItemsBusy(true);
-      try {
-        const res = await fetch(`/api/deals/${deal.id}/items/${itemId}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ quantity }),
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          toast.error(data.error ?? t("items.toastFailed"));
-          return;
-        }
-        applyItemsResponse((data.items ?? []) as OrderItem[]);
-      } finally {
-        setItemsBusy(false);
-      }
-    },
-    [deal, applyItemsResponse, t],
-  );
 
   async function handleSave() {
     if (!title.trim() || !contactId || !stageId) {
@@ -431,9 +385,6 @@ export function DealForm({
   }
 
   const itemsTotalCents = orderItems.reduce((s, i) => s + i.total_cents, 0);
-  const availableCatalogItems = catalogItems.filter(
-    (c) => !orderItems.some((oi) => oi.catalog_item_id === c.id),
-  );
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -503,63 +454,19 @@ export function DealForm({
                     )}
                   </div>
 
-                  {orderItems.length > 0 && (
-                    <ul className="mb-2 space-y-1.5">
-                      {orderItems.map((line) => (
-                        <li key={line.id} className="flex items-center gap-2 text-xs">
-                          <span className="min-w-0 flex-1 truncate text-foreground">{line.name_snapshot}</span>
-                          <div className="flex shrink-0 items-center gap-1">
-                            <button
-                              type="button"
-                              disabled={itemsBusy}
-                              onClick={() => setItemQuantity(line.id, line.quantity - 1)}
-                              className="flex h-5 w-5 items-center justify-center rounded border border-border text-muted-foreground hover:bg-muted disabled:opacity-50"
-                            >
-                              <Minus className="h-3 w-3" />
-                            </button>
-                            <span className="w-4 text-center text-foreground">{line.quantity}</span>
-                            <button
-                              type="button"
-                              disabled={itemsBusy}
-                              onClick={() => setItemQuantity(line.id, line.quantity + 1)}
-                              className="flex h-5 w-5 items-center justify-center rounded border border-border text-muted-foreground hover:bg-muted disabled:opacity-50"
-                            >
-                              <Plus className="h-3 w-3" />
-                            </button>
-                          </div>
-                          <span className="w-16 shrink-0 text-right text-muted-foreground">
-                            {formatCurrency(line.total_cents / 100, currency)}
-                          </span>
-                          <button
-                            type="button"
-                            disabled={itemsBusy}
-                            onClick={() => setItemQuantity(line.id, 0)}
-                            className="shrink-0 text-red-400 hover:text-red-300 disabled:opacity-50"
-                          >
-                            <Trash2 className="h-3 w-3" />
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-
-                  {availableCatalogItems.length > 0 ? (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      disabled={itemsBusy}
-                      onClick={() => setPickerOpen(true)}
-                      className="h-8 w-full justify-start gap-1.5 bg-card text-xs"
-                    >
-                      <Plus className="h-3.5 w-3.5" />
-                      {t("items.addPlaceholder")}
-                    </Button>
-                  ) : catalogItems.length === 0 ? (
-                    <Link href="/catalog" className="text-xs text-primary hover:underline">
-                      {t("items.emptyCatalogCta")}
-                    </Link>
-                  ) : null}
+                  <OrderItemsEditor
+                    items={orderItems}
+                    catalogItems={catalogItems}
+                    currency={currency}
+                    editable
+                    itemsEndpoint={`/api/deals/${deal.id}/items`}
+                    onItemsChange={applyItemsResponse}
+                    emptyCatalogSlot={
+                      <Link href="/catalog" className="text-xs text-primary hover:underline">
+                        {t("items.emptyCatalogCta")}
+                      </Link>
+                    }
+                  />
                 </div>
               )}
 
@@ -776,17 +683,6 @@ export function DealForm({
           </div>
         </div>
       </SheetContent>
-
-      <CatalogPickerDialog
-        open={pickerOpen}
-        onOpenChange={setPickerOpen}
-        items={availableCatalogItems}
-        currency={currency}
-        busy={itemsBusy}
-        onAdd={(id) => {
-          void addCatalogItem(id);
-        }}
-      />
     </Sheet>
   );
 }

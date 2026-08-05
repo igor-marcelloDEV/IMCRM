@@ -21,9 +21,16 @@ const MAX_QUANTITY_PER_LINE = 999;
 const SITE_TAG_NAME = "Site";
 const SITE_TAG_COLOR = "#06b6d4";
 
+const MAX_ADDONS_PER_LINE = 20;
+
+interface CheckoutAddonInput {
+  addon_id: string;
+  quantity: number;
+}
 interface CheckoutItemInput {
   catalog_item_id: string;
   quantity: number;
+  addons: CheckoutAddonInput[];
 }
 
 async function ensureSiteTag(
@@ -83,7 +90,20 @@ export async function POST(
     if (!catalogItemId || !Number.isInteger(quantity) || quantity < 1 || quantity > MAX_QUANTITY_PER_LINE) {
       return NextResponse.json({ error: "Item do carrinho inválido" }, { status: 400 });
     }
-    items.push({ catalog_item_id: catalogItemId, quantity });
+    const rawAddons = Array.isArray(raw?.addons) ? raw.addons : [];
+    if (rawAddons.length > MAX_ADDONS_PER_LINE) {
+      return NextResponse.json({ error: "Muitos adicionais em um item" }, { status: 400 });
+    }
+    const addons: CheckoutAddonInput[] = [];
+    for (const rawAddon of rawAddons) {
+      const addonId = typeof rawAddon?.addon_id === "string" ? rawAddon.addon_id : null;
+      const addonQuantity = Number(rawAddon?.quantity ?? 1);
+      if (!addonId || !Number.isInteger(addonQuantity) || addonQuantity < 1 || addonQuantity > MAX_QUANTITY_PER_LINE) {
+        return NextResponse.json({ error: "Adicional inválido" }, { status: 400 });
+      }
+      addons.push({ addon_id: addonId, quantity: addonQuantity });
+    }
+    items.push({ catalog_item_id: catalogItemId, quantity, addons });
   }
 
   const customer = body.customer && typeof body.customer === "object" ? body.customer : {};
@@ -102,6 +122,10 @@ export async function POST(
   const deliveryZip = str(customer.delivery_zip, 12);
   const deliveryLat = typeof body.delivery_lat === "number" ? body.delivery_lat : null;
   const deliveryLng = typeof body.delivery_lng === "number" ? body.delivery_lng : null;
+  const pickupScheduledAt =
+    typeof body.pickup_scheduled_at === "string" && !Number.isNaN(Date.parse(body.pickup_scheduled_at))
+      ? body.pickup_scheduled_at
+      : null;
   // Legacy free-text mirror kept on `contacts` for the driver app's
   // existing address display — structured fields above are the source
   // of truth on the order itself.
@@ -142,6 +166,9 @@ export async function POST(
   if (hasPhysicalProduct && fulfillmentType === 'delivery' && (!deliveryAddressLine || !deliveryNumber || !deliveryNeighborhood || !deliveryCity)) {
     return NextResponse.json({ error: 'Informe o endereço completo para entrega.' }, { status: 400 });
   }
+  if (hasPhysicalProduct && fulfillmentType === 'pickup' && !pickupScheduledAt) {
+    return NextResponse.json({ error: 'Escolha um horário para retirada.' }, { status: 400 });
+  }
   if (subscriptionItems.length > 0 && (items.length !== 1 || items[0].quantity !== 1)) {
     return NextResponse.json({ error: 'Planos por assinatura devem ser contratados separadamente, uma unidade por vez.' }, { status: 400 });
   }
@@ -172,41 +199,34 @@ export async function POST(
       p_account_id: resolvedAccountId,
       p_contact_id: contact.id,
       p_items: items,
+      p_fulfillment_type: fulfillmentType,
+      p_delivery_address_line: fulfillmentType === 'delivery' ? deliveryAddressLine || null : null,
+      p_delivery_number: fulfillmentType === 'delivery' ? deliveryNumber || null : null,
+      p_delivery_complement: fulfillmentType === 'delivery' ? deliveryComplement || null : null,
+      p_delivery_neighborhood: fulfillmentType === 'delivery' ? deliveryNeighborhood || null : null,
+      p_delivery_city: fulfillmentType === 'delivery' ? deliveryCity || null : null,
+      p_delivery_state: fulfillmentType === 'delivery' ? deliveryState || null : null,
+      p_delivery_zip: fulfillmentType === 'delivery' ? deliveryZip || null : null,
+      p_delivery_lat: fulfillmentType === 'delivery' ? deliveryLat : null,
+      p_delivery_lng: fulfillmentType === 'delivery' ? deliveryLng : null,
+      p_pickup_scheduled_at: fulfillmentType === 'pickup' ? pickupScheduledAt : null,
     })
     .maybeSingle();
 
   if (rpcError || !rpcResult) {
     const message = rpcError?.message ?? "";
-    const status = message.includes("insufficient stock") ? 409 : 400;
-    return NextResponse.json(
-      { error: message.includes("insufficient stock") ? "Um dos itens ficou sem estoque" : "Não foi possível fechar o pedido" },
-      { status },
-    );
+    const status = message.includes("insufficient stock") || message.includes("pickup slot is full") ? 409 : 400;
+    const friendlyMessage = message.includes("insufficient stock")
+      ? "Um dos itens ficou sem estoque"
+      : message.includes("pickup slot is full")
+        ? "Esse horário de retirada acabou de lotar. Escolha outro."
+        : message.includes("add-on")
+          ? "Selecione os adicionais corretamente."
+          : "Não foi possível fechar o pedido";
+    return NextResponse.json({ error: friendlyMessage }, { status });
   }
 
   const order = rpcResult as { order_id: string; deal_id: string; total_cents: number; currency: string };
-
-  if (fulfillmentType) {
-    await db
-      .from('orders')
-      .update({
-        fulfillment_type: fulfillmentType,
-        ...(fulfillmentType === 'delivery'
-          ? {
-              delivery_address_line: deliveryAddressLine || null,
-              delivery_number: deliveryNumber || null,
-              delivery_complement: deliveryComplement || null,
-              delivery_neighborhood: deliveryNeighborhood || null,
-              delivery_city: deliveryCity || null,
-              delivery_state: deliveryState || null,
-              delivery_zip: deliveryZip || null,
-              delivery_lat: deliveryLat,
-              delivery_lng: deliveryLng,
-            }
-          : {}),
-      })
-      .eq('id', order.order_id);
-  }
 
   if (subscriptionItems.length === 1) {
     try {

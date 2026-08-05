@@ -2255,6 +2255,8 @@
     "geolocationSuccess": "Location captured successfully.",
     "geolocationDenied": "Couldn't get your location.",
     "geolocationUnsupported": "Your browser doesn't support geolocation.",
+    "pickupSlotLabel": "Pickup time slot",
+    "pickupNoSlots": "No time slots available for that date.",
     "order": {
       "notFound": "Order not found.",
       "orderRef": "Order #{id}",
@@ -2581,7 +2583,20 @@
       "outOfStockBadge": "Out of stock",
       "storeLinkTitle": "Public store",
       "storeLinkCopy": "Copy link",
-      "storeLinkCopied": "Copied!"
+      "storeLinkCopied": "Copied!",
+      "addonsTitle": "Add-ons",
+      "addonsHint": "Priced extras the customer picks when adding this item (e.g. syrup, topping).",
+      "addonsAddGroup": "New group",
+      "addonsEmpty": "No add-on groups configured for this item.",
+      "addonsGroupNamePlaceholder": "Group name (e.g. Syrup)",
+      "addonsRemoveGroup": "Remove group",
+      "addonsRequired": "Required",
+      "addonsMinSelect": "Min.",
+      "addonsMaxSelect": "Max.",
+      "addonsOptionNamePlaceholder": "Option name (e.g. Chocolate)",
+      "addonsRemoveOption": "Remove option",
+      "addonsAddOption": "Add option",
+      "toastAddonsSaveFailed": "Item saved, but the add-ons failed to save. Please try again."
     },
     "payments": {
       "title": "Payments",

@@ -35,6 +35,21 @@ import { uploadAccountMedia, MEDIA_MAX_BYTES_BY_KIND } from "@/lib/storage/uploa
 import { formatCurrency } from "@/lib/currency";
 import type { CatalogItem } from "@/types";
 
+interface DraftAddonOption {
+  id?: string;
+  name: string;
+  price: string; // reais, as typed — converted to cents on save
+  is_active: boolean;
+}
+interface DraftAddonGroup {
+  id?: string;
+  name: string;
+  required: boolean;
+  min_select: number;
+  max_select: number;
+  options: DraftAddonOption[];
+}
+
 const CATALOG_MEDIA_BUCKET = "flow-media";
 const MEDIA_ACCEPT: Record<"image" | "video", string> = {
   image: "image/png,image/jpeg,image/webp",
@@ -61,6 +76,7 @@ interface DraftState {
   cest: string;
   cfop: string;
   fiscal_unit: string;
+  addonGroups: DraftAddonGroup[];
 }
 
 function emptyDraft(): DraftState {
@@ -74,6 +90,7 @@ function emptyDraft(): DraftState {
     is_active: true,
     stock: "",
     offer_type: 'service', billing_cycle: 'MONTHLY', compare_at_price: '', trial_days: '0', campaign_badge: '', sku: '', ncm: '', cest: '', cfop: '', fiscal_unit: 'UN',
+    addonGroups: [],
   };
 }
 
@@ -89,6 +106,14 @@ function toDraft(item: CatalogItem): DraftState {
     is_active: item.is_active,
     stock: item.stock_quantity === null ? "" : String(item.stock_quantity),
     offer_type: item.offer_type ?? 'service', billing_cycle: item.billing_cycle ?? 'MONTHLY', compare_at_price: item.compare_at_price_cents ? (item.compare_at_price_cents / 100).toFixed(2) : '', trial_days: String(item.trial_days ?? 0), campaign_badge: item.campaign_badge ?? '', sku: item.sku ?? '', ncm: item.ncm ?? '', cest: item.cest ?? '', cfop: item.cfop ?? '', fiscal_unit: item.fiscal_unit ?? 'UN',
+    addonGroups: (item.addon_groups ?? []).map((g) => ({
+      id: g.id,
+      name: g.name,
+      required: g.required,
+      min_select: g.min_select,
+      max_select: g.max_select,
+      options: g.options.map((o) => ({ id: o.id, name: o.name, price: (o.price_cents / 100).toFixed(2), is_active: o.is_active })),
+    })),
   };
 }
 
@@ -197,6 +222,35 @@ export function CatalogManager() {
         toast.error(data.error ?? t("toastSaveFailed"));
         return;
       }
+
+      const itemId = draft.id ?? data.catalog_item?.id;
+      if (itemId) {
+        const addonsRes = await fetch(`/api/catalog/${itemId}/addons`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            addon_groups: draft.addonGroups.map((g) => ({
+              id: g.id,
+              name: g.name,
+              required: g.required,
+              min_select: g.min_select,
+              max_select: g.max_select,
+              options: g.options.map((o) => ({
+                id: o.id,
+                name: o.name,
+                price_cents: Math.round(Number(o.price.replace(",", ".")) * 100) || 0,
+                is_active: o.is_active,
+              })),
+            })),
+          }),
+        });
+        if (!addonsRes.ok) {
+          const addonsData = await addonsRes.json().catch(() => ({}));
+          toast.error(addonsData.error ?? t("toastAddonsSaveFailed"));
+          return;
+        }
+      }
+
       toast.success(draft.id ? t("toastUpdated") : t("toastCreated"));
       setDraft(null);
       await load();
@@ -380,6 +434,12 @@ export function CatalogManager() {
 
               <MediaField draft={draft} onChange={(patch) => setDraft({ ...draft, ...patch })} t={t} />
 
+              <AddonGroupsEditor
+                groups={draft.addonGroups}
+                onChange={(addonGroups) => setDraft({ ...draft, addonGroups })}
+                t={t}
+              />
+
               <div className="flex items-center justify-between rounded-md border border-border bg-muted/50 px-3 py-2">
                 <div>
                   <p className="text-sm font-medium text-foreground">{t("upsellLabel")}</p>
@@ -413,6 +473,145 @@ export function CatalogManager() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+function emptyAddonGroup(): DraftAddonGroup {
+  return { name: "", required: false, min_select: 0, max_select: 1, options: [] };
+}
+function emptyAddonOption(): DraftAddonOption {
+  return { name: "", price: "0,00", is_active: true };
+}
+
+function AddonGroupsEditor({
+  groups,
+  onChange,
+  t,
+}: {
+  groups: DraftAddonGroup[];
+  onChange: (groups: DraftAddonGroup[]) => void;
+  t: ReturnType<typeof useTranslations>;
+}) {
+  const updateGroup = (index: number, patch: Partial<DraftAddonGroup>) => {
+    onChange(groups.map((g, i) => (i === index ? { ...g, ...patch } : g)));
+  };
+  const removeGroup = (index: number) => onChange(groups.filter((_, i) => i !== index));
+  const addGroup = () => onChange([...groups, emptyAddonGroup()]);
+
+  const updateOption = (groupIndex: number, optionIndex: number, patch: Partial<DraftAddonOption>) => {
+    updateGroup(groupIndex, {
+      options: groups[groupIndex].options.map((o, i) => (i === optionIndex ? { ...o, ...patch } : o)),
+    });
+  };
+  const removeOption = (groupIndex: number, optionIndex: number) => {
+    updateGroup(groupIndex, { options: groups[groupIndex].options.filter((_, i) => i !== optionIndex) });
+  };
+  const addOption = (groupIndex: number) => {
+    updateGroup(groupIndex, { options: [...groups[groupIndex].options, emptyAddonOption()] });
+  };
+
+  return (
+    <div className="rounded-lg border border-border p-3">
+      <div className="mb-3 flex items-center justify-between">
+        <div>
+          <p className="text-sm font-medium text-foreground">{t("addonsTitle")}</p>
+          <p className="text-xs text-muted-foreground">{t("addonsHint")}</p>
+        </div>
+        <Button type="button" variant="outline" size="sm" onClick={addGroup}>
+          <Plus className="mr-1 h-3.5 w-3.5" />
+          {t("addonsAddGroup")}
+        </Button>
+      </div>
+
+      {groups.length === 0 ? (
+        <p className="rounded-md border border-dashed border-border py-4 text-center text-xs text-muted-foreground">
+          {t("addonsEmpty")}
+        </p>
+      ) : (
+        <div className="space-y-3">
+          {groups.map((group, groupIndex) => (
+            <div key={group.id ?? `new-${groupIndex}`} className="rounded-md border border-border bg-muted/30 p-3">
+              <div className="flex items-center gap-2">
+                <Input
+                  value={group.name}
+                  onChange={(e) => updateGroup(groupIndex, { name: e.target.value })}
+                  placeholder={t("addonsGroupNamePlaceholder")}
+                  className="flex-1 bg-card text-foreground"
+                />
+                <button
+                  type="button"
+                  onClick={() => removeGroup(groupIndex)}
+                  className="rounded p-1.5 text-muted-foreground hover:bg-red-500/10 hover:text-red-400"
+                  aria-label={t("addonsRemoveGroup")}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              </div>
+
+              <div className="mt-2 flex flex-wrap items-center gap-3">
+                <label className="flex items-center gap-1.5 text-xs text-foreground">
+                  <Switch checked={group.required} onCheckedChange={(v) => updateGroup(groupIndex, { required: v, min_select: v ? Math.max(1, group.min_select) : group.min_select })} />
+                  {t("addonsRequired")}
+                </label>
+                <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  {t("addonsMinSelect")}
+                  <Input
+                    type="number"
+                    min={0}
+                    value={group.min_select}
+                    onChange={(e) => updateGroup(groupIndex, { min_select: Math.max(0, Number(e.target.value) || 0) })}
+                    className="h-7 w-16 bg-card text-foreground"
+                  />
+                </label>
+                <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  {t("addonsMaxSelect")}
+                  <Input
+                    type="number"
+                    min={1}
+                    value={group.max_select}
+                    onChange={(e) => updateGroup(groupIndex, { max_select: Math.max(1, Number(e.target.value) || 1) })}
+                    className="h-7 w-16 bg-card text-foreground"
+                  />
+                </label>
+              </div>
+
+              <div className="mt-3 space-y-1.5">
+                {group.options.map((option, optionIndex) => (
+                  <div key={option.id ?? `new-${optionIndex}`} className="flex items-center gap-2">
+                    <Input
+                      value={option.name}
+                      onChange={(e) => updateOption(groupIndex, optionIndex, { name: e.target.value })}
+                      placeholder={t("addonsOptionNamePlaceholder")}
+                      className="flex-1 bg-card text-foreground"
+                    />
+                    <Input
+                      value={option.price}
+                      onChange={(e) => updateOption(groupIndex, optionIndex, { price: e.target.value })}
+                      placeholder="0,00"
+                      inputMode="decimal"
+                      className="w-24 bg-card text-foreground"
+                    />
+                    <Switch checked={option.is_active} onCheckedChange={(v) => updateOption(groupIndex, optionIndex, { is_active: v })} />
+                    <button
+                      type="button"
+                      onClick={() => removeOption(groupIndex, optionIndex)}
+                      className="rounded p-1.5 text-muted-foreground hover:bg-red-500/10 hover:text-red-400"
+                      aria-label={t("addonsRemoveOption")}
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ))}
+                <Button type="button" variant="ghost" size="sm" onClick={() => addOption(groupIndex)} className="text-xs">
+                  <Plus className="mr-1 h-3 w-3" />
+                  {t("addonsAddOption")}
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

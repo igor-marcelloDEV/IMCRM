@@ -21,7 +21,10 @@ interface CatalogPickerDialogProps {
   items: CatalogItem[];
   currency: string;
   busy: boolean;
-  onAdd: (catalogItemId: string) => void;
+  /** Receives the full item (not just its id) so the caller can branch
+   *  on `addon_groups` before deciding to add it directly or open a
+   *  configuration step first. */
+  onPick: (item: CatalogItem) => void;
 }
 
 /**
@@ -36,7 +39,7 @@ export function CatalogPickerDialog({
   items,
   currency,
   busy,
-  onAdd,
+  onPick,
 }: CatalogPickerDialogProps) {
   const t = useTranslations("Pipelines.form.items");
   const [query, setQuery] = useState("");
@@ -84,7 +87,7 @@ export function CatalogPickerDialog({
                   key={item.id}
                   type="button"
                   disabled={busy}
-                  onClick={() => onAdd(item.id)}
+                  onClick={() => onPick(item)}
                   className="group flex flex-col overflow-hidden rounded-lg border border-border bg-card text-left transition-colors hover:border-primary/50 hover:bg-muted/50 disabled:opacity-50"
                 >
                   <div className="flex aspect-square items-center justify-center bg-muted">

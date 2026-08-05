@@ -14,10 +14,24 @@ export async function GET() {
     const { supabase } = await getCurrentAccount()
     const { data, error } = await supabase
       .from('catalog_items')
-      .select('*')
+      .select(
+        '*, addon_groups:catalog_item_addon_groups(id,account_id,catalog_item_id,name,required,min_select,max_select,position,options:catalog_item_addons(id,group_id,name,price_cents,is_active,position))',
+      )
       .order('position', { ascending: true })
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-    return NextResponse.json({ catalog_items: data ?? [] })
+    // Nested embeds aren't sortable server-side by relation column —
+    // sort groups/options by `position` here so callers never see them
+    // shuffled between requests.
+    interface AddonOptionRow { position: number; [key: string]: unknown }
+    interface AddonGroupRow { position: number; options: AddonOptionRow[] | null; [key: string]: unknown }
+    const byPosition = (a: { position: number }, b: { position: number }) => a.position - b.position
+    const catalogItems = (data ?? []).map((item) => ({
+      ...item,
+      addon_groups: ((item.addon_groups ?? []) as AddonGroupRow[])
+        .map((g) => ({ ...g, options: [...(g.options ?? [])].sort(byPosition) }))
+        .sort(byPosition),
+    }))
+    return NextResponse.json({ catalog_items: catalogItems })
   } catch (err) {
     return toErrorResponse(err)
   }

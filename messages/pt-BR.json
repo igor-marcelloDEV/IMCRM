@@ -2255,6 +2255,8 @@
     "geolocationSuccess": "Localização capturada com sucesso.",
     "geolocationDenied": "Não foi possível obter sua localização.",
     "geolocationUnsupported": "Seu navegador não suporta geolocalização.",
+    "pickupSlotLabel": "Horário para retirar na loja",
+    "pickupNoSlots": "Nenhum horário disponível para essa data.",
     "order": {
       "notFound": "Pedido não encontrado.",
       "orderRef": "Pedido #{id}",
@@ -2581,7 +2583,20 @@
       "outOfStockBadge": "Esgotado",
       "storeLinkTitle": "Loja pública",
       "storeLinkCopy": "Copiar link",
-      "storeLinkCopied": "Copiado!"
+      "storeLinkCopied": "Copiado!",
+      "addonsTitle": "Adicionais",
+      "addonsHint": "Opções extras com preço, escolhidas pelo cliente ao adicionar este item (ex: calda, cobertura).",
+      "addonsAddGroup": "Novo grupo",
+      "addonsEmpty": "Nenhum grupo de adicionais configurado para este item.",
+      "addonsGroupNamePlaceholder": "Nome do grupo (ex: Calda)",
+      "addonsRemoveGroup": "Remover grupo",
+      "addonsRequired": "Obrigatório",
+      "addonsMinSelect": "Mín.",
+      "addonsMaxSelect": "Máx.",
+      "addonsOptionNamePlaceholder": "Nome da opção (ex: Chocolate)",
+      "addonsRemoveOption": "Remover opção",
+      "addonsAddOption": "Adicionar opção",
+      "toastAddonsSaveFailed": "Item salvo, mas os adicionais não foram salvos. Tente novamente."
     },
     "payments": {
       "title": "Pagamentos",

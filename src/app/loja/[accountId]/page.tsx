@@ -16,7 +16,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
-import { ClipboardList, CreditCard, Headphones, Loader2, Minus, Package, Plus, QrCode, Search, ShieldCheck, ShoppingCart, Store, Truck, X, Zap } from 'lucide-react';
+import { ClipboardList, Clock, CreditCard, Headphones, Loader2, Minus, Package, Plus, QrCode, Search, Settings2, ShieldCheck, ShoppingCart, Store, Truck, X, Zap } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -27,7 +27,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { AddonsPickerDialog, type AddonSelection } from '@/components/orders/addons-picker-dialog';
 import { formatCurrency } from '@/lib/currency';
+import type { CatalogItemAddonGroup } from '@/types';
 
 interface StoreCatalogItem {
   id: string;
@@ -43,6 +45,7 @@ interface StoreCatalogItem {
   compare_at_price_cents: number | null;
   trial_days: number;
   campaign_badge: string | null;
+  addon_groups?: CatalogItemAddonGroup[];
 }
 
 interface StoreData {
@@ -53,6 +56,8 @@ interface StoreData {
     cnpj: string | null;
     logo_url: string | null;
     store_slug: string | null;
+    pickup_slot_minutes: number;
+    pickup_capacity_per_slot: number;
   };
   catalog_items: StoreCatalogItem[];
 }
@@ -61,10 +66,32 @@ interface RecentOrder {
   id: string; order_code: string; status: string; total_cents: number; currency: string; created_at: string;
 }
 
+interface CartLineAddon {
+  addonId: string;
+  name: string;
+  priceCents: number;
+  qty: number;
+}
+interface CartLine {
+  catalogItemId: string;
+  qty: number;
+  addons: CartLineAddon[];
+}
+
+interface PickupSlot {
+  time: string;
+  iso: string;
+  available: number;
+}
+
 function formatCnpj(value: string) {
   const digits = value.replace(/\D/g, '');
   if (digits.length !== 14) return value;
   return digits.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5');
+}
+
+function todayIso() {
+  return new Date().toISOString().slice(0, 10);
 }
 
 export default function PublicStorePage() {
@@ -75,7 +102,8 @@ export default function PublicStorePage() {
 
   const [store, setStore] = useState<StoreData | null>(null);
   const [loadError, setLoadError] = useState(false);
-  const [cart, setCart] = useState<Record<string, number>>({});
+  const [cart, setCart] = useState<Record<string, CartLine>>({});
+  const [addonsPickerItem, setAddonsPickerItem] = useState<StoreCatalogItem | null>(null);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [form, setForm] = useState({
@@ -94,6 +122,10 @@ export default function PublicStorePage() {
   const [fulfillmentType, setFulfillmentType] = useState<'pickup' | 'delivery'>('delivery');
   const [geo, setGeo] = useState<{ lat: number; lng: number } | null>(null);
   const [locating, setLocating] = useState(false);
+  const [pickupDate, setPickupDate] = useState(todayIso());
+  const [pickupSlots, setPickupSlots] = useState<PickupSlot[]>([]);
+  const [pickupSlotIso, setPickupSlotIso] = useState<string | null>(null);
+  const [loadingSlots, setLoadingSlots] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<'pix' | 'card'>('pix');
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState<'featured' | 'lowest' | 'highest'>('featured');
@@ -118,16 +150,63 @@ export default function PublicStorePage() {
       .catch(() => setLoadError(true));
   }, [accountId, router]);
 
-  const setQty = useCallback((itemId: string, qty: number) => {
+  const items = useMemo(() => store?.catalog_items ?? [], [store]);
+  const itemsById = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
+
+  // Simple (no add-ons) items keep the classic "one line per product"
+  // behavior, keyed by the product id itself. Add-on-bearing items
+  // always go through the picker and get a fresh synthetic key, so two
+  // different configurations of the same product can coexist.
+  const addSimpleItem = useCallback((item: StoreCatalogItem) => {
+    setCart((prev) => {
+      const existing = prev[item.id];
+      return { ...prev, [item.id]: { catalogItemId: item.id, qty: (existing?.qty ?? 0) + 1, addons: [] } };
+    });
+  }, []);
+
+  const handleProductTap = useCallback(
+    (item: StoreCatalogItem) => {
+      if (item.addon_groups?.length) {
+        setAddonsPickerItem(item);
+        return;
+      }
+      addSimpleItem(item);
+    },
+    [addSimpleItem],
+  );
+
+  const handleAddonsConfirm = useCallback(
+    (selection: AddonSelection[], applyToAll: boolean) => {
+      if (!addonsPickerItem) return;
+      const resolvedAddons: CartLineAddon[] = selection.map((s) => {
+        const option = addonsPickerItem.addon_groups?.flatMap((g) => g.options).find((o) => o.id === s.addon_id);
+        return { addonId: s.addon_id, name: option?.name ?? '', priceCents: option?.price_cents ?? 0, qty: s.quantity };
+      });
+      const lineKey = crypto.randomUUID();
+      setCart((prev) => {
+        const next = { ...prev, [lineKey]: { catalogItemId: addonsPickerItem.id, qty: 1, addons: resolvedAddons } };
+        if (applyToAll) {
+          for (const key of Object.keys(next)) {
+            if (key === lineKey) continue;
+            next[key] = { ...next[key], addons: resolvedAddons };
+          }
+        }
+        return next;
+      });
+      setAddonsPickerItem(null);
+    },
+    [addonsPickerItem],
+  );
+
+  const adjustLineQty = useCallback((lineKey: string, qty: number) => {
     setCart((prev) => {
       const next = { ...prev };
-      if (qty <= 0) delete next[itemId];
-      else next[itemId] = qty;
+      if (qty <= 0) delete next[lineKey];
+      else next[lineKey] = { ...next[lineKey], qty };
       return next;
     });
   }, []);
 
-  const items = useMemo(() => store?.catalog_items ?? [], [store]);
   const visibleItems = useMemo(() => {
     const query = search.trim().toLocaleLowerCase();
     const filtered = query
@@ -137,21 +216,31 @@ export default function PublicStorePage() {
     if (sort === 'highest') filtered.sort((a, b) => b.price_cents - a.price_cents);
     return filtered;
   }, [items, search, sort]);
+
   const cartLines = useMemo(
     () =>
       Object.entries(cart)
-        .map(([id, qty]) => ({ item: items.find((i) => i.id === id), qty }))
-        .filter((l): l is { item: StoreCatalogItem; qty: number } => !!l.item),
-    [cart, items],
+        .map(([key, line]) => ({ key, line, item: itemsById.get(line.catalogItemId) }))
+        .filter((l): l is { key: string; line: CartLine; item: StoreCatalogItem } => !!l.item),
+    [cart, itemsById],
   );
-  const totalCents = cartLines.reduce((sum, l) => sum + l.item.price_cents * l.qty, 0);
-  const totalCount = cartLines.reduce((sum, l) => sum + l.qty, 0);
+  const lineTotalCents = (l: { line: CartLine; item: StoreCatalogItem }) =>
+    (l.item.price_cents + l.line.addons.reduce((s, a) => s + a.priceCents * a.qty, 0)) * l.line.qty;
+  const totalCents = cartLines.reduce((sum, l) => sum + lineTotalCents(l), 0);
+  const totalCount = cartLines.reduce((sum, l) => sum + l.line.qty, 0);
+  const qtyInCartByProduct = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const l of cartLines) map.set(l.item.id, (map.get(l.item.id) ?? 0) + l.line.qty);
+    return map;
+  }, [cartLines]);
   const currency = items[0]?.currency ?? 'BRL';
   const requiresDeliveryChoice = cartLines.some((line) => line.item.offer_type === 'physical_product');
+
   const checkoutReady = useMemo(() => {
     const phoneDigits = form.phone.replace(/\D/g, '');
     const taxDigits = form.cpf_cnpj.replace(/\D/g, '');
     const needsAddress = requiresDeliveryChoice && fulfillmentType === 'delivery';
+    const needsPickupSlot = requiresDeliveryChoice && fulfillmentType === 'pickup';
     return (
       form.name.trim().length > 1 &&
       phoneDigits.length >= 10 &&
@@ -162,9 +251,10 @@ export default function PublicStorePage() {
         (form.delivery_address_line.trim().length >= 3 &&
           form.delivery_number.trim().length >= 1 &&
           form.delivery_neighborhood.trim().length >= 2 &&
-          form.delivery_city.trim().length >= 2))
+          form.delivery_city.trim().length >= 2)) &&
+      (!needsPickupSlot || !!pickupSlotIso)
     );
-  }, [fulfillmentType, form, requiresDeliveryChoice]);
+  }, [fulfillmentType, form, pickupSlotIso, requiresDeliveryChoice]);
 
   const requestGeolocation = useCallback(() => {
     if (!navigator.geolocation) {
@@ -186,6 +276,30 @@ export default function PublicStorePage() {
     );
   }, [t]);
 
+  // Load pickup slots whenever the date changes while the customer has
+  // pickup selected — capacity is re-checked server-side at checkout
+  // regardless, this is just what's shown as bookable.
+  useEffect(() => {
+    if (!accountId || fulfillmentType !== 'pickup' || !requiresDeliveryChoice) return;
+    let cancelled = false;
+    setLoadingSlots(true);
+    setPickupSlotIso(null);
+    fetch(`/api/public/store/${accountId}/pickup-slots?date=${pickupDate}`, { cache: 'no-store' })
+      .then((res) => res.json())
+      .then((data) => {
+        if (!cancelled) setPickupSlots(data.slots ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setPickupSlots([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingSlots(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [accountId, fulfillmentType, pickupDate, requiresDeliveryChoice]);
+
   const submitCheckout = useCallback(async () => {
     if (!accountId) return;
     if (!checkoutReady) {
@@ -198,12 +312,17 @@ export default function PublicStorePage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          items: cartLines.map((l) => ({ catalog_item_id: l.item.id, quantity: l.qty })),
+          items: cartLines.map((l) => ({
+            catalog_item_id: l.item.id,
+            quantity: l.line.qty,
+            addons: l.line.addons.map((a) => ({ addon_id: a.addonId, quantity: a.qty })),
+          })),
           customer: form,
           payment_method: paymentMethod,
           fulfillment_type: requiresDeliveryChoice ? fulfillmentType : null,
           delivery_lat: geo?.lat ?? null,
           delivery_lng: geo?.lng ?? null,
+          pickup_scheduled_at: fulfillmentType === 'pickup' ? pickupSlotIso : null,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -221,7 +340,7 @@ export default function PublicStorePage() {
     } finally {
       setSubmitting(false);
     }
-  }, [accountId, cartLines, checkoutReady, form, fulfillmentType, geo, paymentMethod, requiresDeliveryChoice, router, t]);
+  }, [accountId, cartLines, checkoutReady, form, fulfillmentType, geo, paymentMethod, pickupSlotIso, requiresDeliveryChoice, router, t]);
 
   const lookupOrders = useCallback(async () => {
     if (!accountId || !orderIdentifier.trim()) return;
@@ -323,7 +442,8 @@ export default function PublicStorePage() {
         ) : (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {visibleItems.map((item) => {
-              const qty = cart[item.id] ?? 0;
+              const hasAddons = (item.addon_groups?.length ?? 0) > 0;
+              const qty = hasAddons ? (qtyInCartByProduct.get(item.id) ?? 0) : (cart[item.id]?.qty ?? 0);
               const outOfStock = item.stock_quantity !== null && item.stock_quantity <= 0;
               const maxQty = item.stock_quantity ?? Infinity;
               return (
@@ -354,18 +474,23 @@ export default function PublicStorePage() {
                     <div className="mt-4 flex items-center justify-between gap-2">
                       {outOfStock ? (
                         <span className="text-xs font-medium text-red-400">{t('outOfStock')}</span>
+                      ) : hasAddons ? (
+                        <Button className="w-full" onClick={() => handleProductTap(item)}>
+                          <Settings2 className="mr-1 h-3.5 w-3.5" />
+                          {qty > 0 ? `${t('add')} (${qty} ${t('inCart')})` : t('add')}
+                        </Button>
                       ) : qty === 0 ? (
-                        <Button className="w-full" onClick={() => setQty(item.id, 1)}>
+                        <Button className="w-full" onClick={() => addSimpleItem(item)}>
                           <Plus className="mr-1 h-3.5 w-3.5" />
                           {t('add')}
                         </Button>
                       ) : (
                         <div className="grid h-11 w-full grid-cols-[40px_minmax(0,1fr)_40px] items-center overflow-hidden rounded-lg border border-blue-200 bg-blue-50 dark:border-blue-500/30 dark:bg-blue-500/10">
-                          <button type="button" aria-label={t('decreaseQuantity')} className="flex h-full w-10 items-center justify-center border-r border-blue-200 text-blue-700 hover:bg-blue-100 dark:border-blue-500/30 dark:text-blue-300" onClick={() => setQty(item.id, qty - 1)}>
+                          <button type="button" aria-label={t('decreaseQuantity')} className="flex h-full w-10 items-center justify-center border-r border-blue-200 text-blue-700 hover:bg-blue-100 dark:border-blue-500/30 dark:text-blue-300" onClick={() => adjustLineQty(item.id, qty - 1)}>
                             <Minus className="h-3.5 w-3.5" />
                           </button>
                           <span className="truncate px-1 text-center text-sm font-bold text-blue-700 dark:text-blue-300">{qty} {t('inCart')}</span>
-                          <button type="button" aria-label={t('increaseQuantity')} className="flex h-full w-10 items-center justify-center border-l border-blue-200 text-blue-700 hover:bg-blue-100 disabled:opacity-40 dark:border-blue-500/30 dark:text-blue-300" onClick={() => setQty(item.id, Math.min(qty + 1, maxQty))} disabled={qty >= maxQty}>
+                          <button type="button" aria-label={t('increaseQuantity')} className="flex h-full w-10 items-center justify-center border-l border-blue-200 text-blue-700 hover:bg-blue-100 disabled:opacity-40 dark:border-blue-500/30 dark:text-blue-300" onClick={() => adjustLineQty(item.id, Math.min(qty + 1, maxQty))} disabled={qty >= maxQty}>
                             <Plus className="h-3.5 w-3.5" />
                           </button>
                         </div>
@@ -399,23 +524,32 @@ export default function PublicStorePage() {
             <DialogTitle>{t('checkoutTitle')}</DialogTitle>
           </DialogHeader>
 
-          <div className="max-h-40 space-y-1 overflow-y-auto rounded-md border border-border bg-muted/40 p-2">
+          <div className="max-h-48 space-y-2 overflow-y-auto rounded-md border border-border bg-muted/40 p-2">
             {cartLines.map((l) => (
-              <div key={l.item.id} className="flex items-center justify-between text-xs">
-                <span className="truncate text-foreground">
-                  {l.qty}x {l.item.name}
-                </span>
-                <div className="flex items-center gap-2 text-muted-foreground">
-                  {formatCurrency((l.item.price_cents * l.qty) / 100, l.item.currency)}
-                  <button
-                    type="button"
-                    onClick={() => setQty(l.item.id, 0)}
-                    className="text-muted-foreground hover:text-red-400"
-                    aria-label={t('removeItem')}
-                  >
-                    <X className="h-3 w-3" />
-                  </button>
+              <div key={l.key} className="text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="truncate text-foreground">
+                    {l.line.qty}x {l.item.name}
+                  </span>
+                  <div className="flex items-center gap-2 text-muted-foreground">
+                    {formatCurrency(lineTotalCents(l) / 100, l.item.currency)}
+                    <button
+                      type="button"
+                      onClick={() => adjustLineQty(l.key, 0)}
+                      className="text-muted-foreground hover:text-red-400"
+                      aria-label={t('removeItem')}
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
                 </div>
+                {l.line.addons.length > 0 && (
+                  <ul className="pl-3 text-muted-foreground">
+                    {l.line.addons.map((a) => (
+                      <li key={a.addonId}>+ {a.name}</li>
+                    ))}
+                  </ul>
+                )}
               </div>
             ))}
           </div>
@@ -517,6 +651,46 @@ export default function PublicStorePage() {
                     </button>
                   </div>
                 )}
+
+                {fulfillmentType === 'pickup' && (
+                  <div className="space-y-2 rounded-lg border border-border p-3">
+                    <label className="mb-1 flex items-center gap-1.5 text-xs font-medium text-foreground">
+                      <Clock className="h-3.5 w-3.5" />
+                      {t('pickupSlotLabel')}
+                    </label>
+                    <Input
+                      type="date"
+                      value={pickupDate}
+                      min={todayIso()}
+                      onChange={(e) => setPickupDate(e.target.value)}
+                    />
+                    {loadingSlots ? (
+                      <div className="flex justify-center py-3"><Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /></div>
+                    ) : pickupSlots.length === 0 ? (
+                      <p className="text-xs text-muted-foreground">{t('pickupNoSlots')}</p>
+                    ) : (
+                      <div className="grid grid-cols-3 gap-1.5">
+                        {pickupSlots.map((slot) => (
+                          <button
+                            key={slot.iso}
+                            type="button"
+                            disabled={slot.available <= 0}
+                            onClick={() => setPickupSlotIso(slot.iso)}
+                            className={`rounded-md border px-2 py-1.5 text-xs font-medium ${
+                              pickupSlotIso === slot.iso
+                                ? 'border-primary bg-primary/10 text-primary'
+                                : slot.available <= 0
+                                  ? 'cursor-not-allowed border-border text-muted-foreground/50 line-through'
+                                  : 'border-border text-foreground hover:bg-muted/50'
+                            }`}
+                          >
+                            {slot.time}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -544,6 +718,15 @@ export default function PublicStorePage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AddonsPickerDialog
+        open={!!addonsPickerItem}
+        onOpenChange={(open) => !open && setAddonsPickerItem(null)}
+        item={addonsPickerItem}
+        currency={currency}
+        showApplyToAll={cartLines.length > 0}
+        onConfirm={handleAddonsConfirm}
+      />
 
       <Dialog open={ordersOpen} onOpenChange={setOrdersOpen}>
         <DialogContent className="sm:max-w-lg">

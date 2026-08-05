@@ -238,6 +238,28 @@ html[data-theme="rose"] {
   body * {
     visibility: hidden;
   }
+  /* The receipt's `.print-only-area` normally escapes to `position:
+   * fixed; inset: 0` to fill the page regardless of where it sits in
+   * the DOM — but our Dialog centers itself with a `transform`
+   * (translate-x/y), and any `transform` on an ancestor makes it the
+   * containing block for `position: fixed` descendants (CSS spec).
+   * Combined with the Dialog's `overflow-hidden`, the receipt was
+   * getting clipped to the dialog's own (transformed, screen-sized)
+   * box instead of the print page, rendering blank. Neutralizing the
+   * dialog wrapper at print time lets `.print-only-area` genuinely
+   * fill the printed page again. */
+  [data-slot="dialog-overlay"] {
+    display: none !important;
+  }
+  [data-slot="dialog-content"] {
+    position: static !important;
+    transform: none !important;
+    overflow: visible !important;
+    max-height: none !important;
+    max-width: none !important;
+    width: auto !important;
+    box-shadow: none !important;
+  }
   .print-only-area,
   .print-only-area * {
     visibility: visible;

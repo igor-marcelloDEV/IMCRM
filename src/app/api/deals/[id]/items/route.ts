@@ -1,6 +1,15 @@
 import { NextResponse } from 'next/server';
 import { requireRole, toErrorResponse } from '@/lib/auth/account';
 import { supabaseAdmin } from '@/lib/automations/admin-client';
+import {
+  addonsUnitCents,
+  applyAddonsToOtherLines,
+  computeAddonsSignature,
+  findMatchingOrderLine,
+  insertOrderItemAddons,
+  resolveOrderItemAddons,
+  type RequestedAddon,
+} from '@/lib/orders/order-item-addons';
 
 // Attaches catalog items to a Deal so its value can be built from the
 // same product catalog the checkout Flow node sells from, instead of
@@ -53,6 +62,12 @@ export async function POST(
       { status: 400 }
     );
   }
+  const requestedAddons: RequestedAddon[] = Array.isArray(body?.add_ons)
+    ? body.add_ons
+        .filter((a: unknown): a is { addon_id: string; quantity?: number } => typeof (a as { addon_id?: unknown })?.addon_id === 'string')
+        .map((a: { addon_id: string; quantity?: number }) => ({ addon_id: a.addon_id, quantity: a.quantity }))
+    : [];
+  const applyToAll = body?.apply_to_all === true;
 
   const db = supabaseAdmin();
 
@@ -127,35 +142,49 @@ export async function POST(
     order = created;
   }
 
-  const { data: existingLine } = await db
-    .from('order_items')
-    .select('id, quantity')
-    .eq('order_id', order.id)
-    .eq('catalog_item_id', item.id)
-    .maybeSingle();
+  const resolved = await resolveOrderItemAddons(db, item.id, requestedAddons);
+  if (!resolved.ok) return NextResponse.json({ error: resolved.error }, { status: 400 });
+  const extraUnitCents = addonsUnitCents(resolved.addons);
+  const signature = computeAddonsSignature(
+    resolved.addons.map((a) => ({ catalog_item_addon_id: a.catalog_item_addon_id, quantity: a.quantity })),
+  );
+
+  const existingLine = await findMatchingOrderLine(db, order.id, item.id, signature);
+  let touchedLineId: string;
 
   if (existingLine) {
     const quantity = existingLine.quantity + 1;
     await db
       .from('order_items')
-      .update({ quantity, total_cents: quantity * item.price_cents })
+      .update({ quantity, total_cents: quantity * (existingLine.unit_price_cents + extraUnitCents) })
       .eq('id', existingLine.id);
+    touchedLineId = existingLine.id;
   } else {
-    await db.from('order_items').insert({
-      order_id: order.id,
-      catalog_item_id: item.id,
-      name_snapshot: item.name,
-      quantity: 1,
-      unit_price_cents: item.price_cents,
-      total_cents: item.price_cents,
-    });
+    const { data: newLine } = await db
+      .from('order_items')
+      .insert({
+        order_id: order.id,
+        catalog_item_id: item.id,
+        name_snapshot: item.name,
+        quantity: 1,
+        unit_price_cents: item.price_cents,
+        total_cents: item.price_cents + extraUnitCents,
+      })
+      .select('id')
+      .single();
+    touchedLineId = newLine!.id;
+    await insertOrderItemAddons(db, touchedLineId, resolved.addons);
+  }
+
+  if (applyToAll) {
+    await applyAddonsToOtherLines(db, order.id, touchedLineId, resolved.addons);
   }
 
   await recomputeOrderTotal(dealId, order.id);
 
   const { data: finalItems } = await db
     .from('order_items')
-    .select('*')
+    .select('*, addons:order_item_addons(*)')
     .eq('order_id', order.id)
     .order('created_at', { ascending: true });
   return NextResponse.json({ order_id: order.id, items: finalItems ?? [] });
