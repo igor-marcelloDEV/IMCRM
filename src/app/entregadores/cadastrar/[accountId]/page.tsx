@@ -117,7 +117,7 @@ export default function DriverApplyPage() {
           <Input value={form.pix_key} onChange={(e) => setForm({ ...form, pix_key: e.target.value })} placeholder="Chave PIX para receber os repasses" className="h-12 bg-white text-slate-900" />
         </div>
 
-        <Button className="h-12 w-full bg-blue-600 text-base font-bold" disabled={!ready || submitting}>
+        <Button type="submit" className="h-12 w-full bg-blue-600 text-base font-bold" disabled={!ready || submitting}>
           {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Enviar candidatura'}
         </Button>
         <p className="text-center text-[11px] text-white/40">Já tem cadastro? <a href="/entregadores/login" className="text-blue-400 underline">Fazer login</a></p>
