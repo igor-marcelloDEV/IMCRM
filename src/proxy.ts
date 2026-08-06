@@ -43,14 +43,19 @@ export async function proxy(request: NextRequest) {
     return response
   }
 
+  // Exact segment match — a plain startsWith('/entregadores') also
+  // catches sibling routes that merely share the string prefix, like
+  // /entregadores-manifest.webmanifest, which must stay publicly
+  // fetchable (unauthenticated) for the driver PWA to be installable.
+  const isEntregadoresPath = request.nextUrl.pathname === '/entregadores' || request.nextUrl.pathname.startsWith('/entregadores/')
   const isDriverPublic = request.nextUrl.pathname === '/entregadores/login' || request.nextUrl.pathname === '/entregadores/cadastro'
-  if (!user && request.nextUrl.pathname.startsWith('/entregadores') && !isDriverPublic) {
+  if (!user && isEntregadoresPath && !isDriverPublic) {
     const url = request.nextUrl.clone()
     url.pathname = '/entregadores/login'
     url.search = ''
     return withRefreshedCookies(NextResponse.redirect(url))
   }
-  if (user && !request.nextUrl.pathname.startsWith('/entregadores') && !request.nextUrl.pathname.startsWith('/api/driver/')) {
+  if (user && !isEntregadoresPath && !request.nextUrl.pathname.startsWith('/api/driver/')) {
     if (user.user_metadata?.portal === 'driver') {
       const url = request.nextUrl.clone(); url.pathname = '/entregadores'; url.search = ''
       return withRefreshedCookies(NextResponse.redirect(url))
