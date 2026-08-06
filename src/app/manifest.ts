@@ -1,12 +1,14 @@
 import type { MetadataRoute } from "next";
 
-// Installable-app manifest for the internal dashboard. The service
-// worker that makes this actually installable (instrumentation-client.ts)
-// deliberately skips registering on /loja/* — the storefront is a
-// customer-facing page shared over WhatsApp/Instagram, not something
-// staff install as an app — so this manifest's `start_url`/`scope`
-// only make sense for the dashboard even though Next only supports one
-// manifest file for the whole app.
+// Installable-app manifest for the internal dashboard. Next only
+// supports one root-level manifest.ts for the whole app (unlike
+// icon.tsx, which can nest per segment) — the driver portal
+// (/entregadores) gets its own separate manifest + start_url via
+// entregadores/layout.tsx overriding this one for that segment, so
+// installing from either surface opens back into that surface. The
+// public storefront (/loja/*) is excluded from installability
+// entirely (instrumentation-client.ts) — it's a one-off link shared
+// over WhatsApp/Instagram, not something a customer installs as an app.
 export default function manifest(): MetadataRoute.Manifest {
   return {
     name: "IM CRM",
